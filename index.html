@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>품질관리 브라우저</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 왼쪽 메뉴 사이드바 -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__brand">
+        <span class="sidebar__brand-mark">QC</span>
+        <span class="sidebar__brand-text">품질관리</span>
+      </div>
+
+      <nav class="sidebar__nav" id="menu-list">
+        <!-- 메뉴 항목은 js/app.js의 MENU_ITEMS 배열에서 렌더링됩니다 -->
+      </nav>
+
+      <button class="sidebar__add-btn" id="add-menu-btn" title="메뉴 추가">
+        <span class="icon">＋</span>
+        <span>메뉴 추가</span>
+      </button>
+    </aside>
+
+    <!-- 메인 영역 -->
+    <div class="main">
+      <header class="topbar">
+        <button class="topbar__toggle" id="sidebar-toggle" aria-label="메뉴 열기/닫기">☰</button>
+        <h1 class="topbar__title" id="page-title">대시보드</h1>
+        <div class="topbar__actions">
+          <span class="badge">v1.0</span>
+        </div>
+      </header>
+
+      <main class="content" id="content">
+        <!-- 페이지 콘텐츠는 js/app.js에서 렌더링됩니다 -->
+      </main>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
