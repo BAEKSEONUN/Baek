@@ -16,7 +16,7 @@ const DEFAULT_DATA = {
   rounds: [], // {id, courseId, date}  -- 스코어 리스트에 등록된 라운드
   scores: {}, // `${roundId}::${memberId}` -> strokes(number)
   rules: [], // {id, text}
-  inventory: [], // {id, name, qty, unit, note, logs: [{id, date, count, remainingQty, recipient}]}
+  inventory: [], // {id, name, qty(초기 등록 수량), unit, note, logs: [{id, date, stockIn, stockOut, recipient}]}
   cashbook: [], // {id, date, desc, income, expense}
   teams: [], // memberId[][] -- 팀 분배 결과(수정 가능)
 };
@@ -1127,6 +1127,20 @@ function renderRules(root) {
 
 /* ==================== 상품재고 ==================== */
 
+// 초기 등록 수량에 입출고 기록(입고-출고)을 누적 적용해 현재 재고수량을 계산한다.
+function computeInventoryStock(item) {
+  const chronoLogs = [...(item.logs || [])].sort((a, b) => a.date.localeCompare(b.date));
+  let running = item.qty;
+  const withBalance = chronoLogs.map((l) => {
+    running += (l.stockIn || 0) - (l.stockOut || 0);
+    return { ...l, balance: running };
+  });
+  return {
+    currentStock: withBalance.length ? withBalance[withBalance.length - 1].balance : item.qty,
+    logsDesc: [...withBalance].reverse(), // 최근 날짜가 맨 위로
+  };
+}
+
 function renderInventory(root) {
   const expandedIds = new Set();
 
@@ -1134,12 +1148,12 @@ function renderInventory(root) {
     root.innerHTML = `
       <div class="page-header">
         <h2>상품재고</h2>
-        <p>경품 및 상품 재고를 관리합니다. 품목명 왼쪽 화살표를 누르면 불출 기록을 펼치거나 접을 수 있습니다.</p>
+        <p>경품 및 상품 재고를 관리합니다. 품목명 왼쪽 화살표를 누르면 입출고 기록을 펼치거나 접을 수 있습니다.</p>
       </div>
       <div class="panel">
         <form class="form-grid" id="inventory-form">
           <label>품목명 <input type="text" name="name" required /></label>
-          <label>수량 <input type="text" inputmode="numeric" name="qty" class="number-input" value="0" /></label>
+          <label>초기 수량 <input type="text" inputmode="numeric" name="qty" class="number-input" value="0" /></label>
           <label>단위 <input type="text" name="unit" placeholder="예: 개, 세트" /></label>
           <label>비고 <input type="text" name="note" /></label>
           <div class="form-actions" style="grid-column: 1 / -1">
@@ -1166,19 +1180,13 @@ function renderInventory(root) {
   }
 
   function renderInventoryItemRows(item, expanded) {
-    const logs = [...(item.logs || [])].sort((a, b) => b.date.localeCompare(a.date)); // 최근 날짜가 맨 위로
+    const { currentStock, logsDesc } = computeInventoryStock(item);
     const headerRow = `<tr>
       <td>
-        <button class="btn-icon" data-toggle="${item.id}" title="불출 기록 ${expanded ? "접기" : "펼치기"}">${expanded ? "▾" : "▸"}</button>
+        <button class="btn-icon" data-toggle="${item.id}" title="입출고 기록 ${expanded ? "접기" : "펼치기"}">${expanded ? "▾" : "▸"}</button>
         ${escapeHtml(item.name)}
       </td>
-      <td>
-        <div class="qty-control">
-          <button class="btn-icon" data-dec="${item.id}">−</button>
-          <span>${formatNumber(item.qty)} ${escapeHtml(item.unit || "")}</span>
-          <button class="btn-icon" data-inc="${item.id}">＋</button>
-        </div>
-      </td>
+      <td>${formatNumber(currentStock)} ${escapeHtml(item.unit || "")}</td>
       <td>${escapeHtml(item.note || "-")}</td>
       <td><button class="btn-icon" data-del="${item.id}" title="삭제">🗑️</button></td>
     </tr>`;
@@ -1188,32 +1196,34 @@ function renderInventory(root) {
     const detailRow = `<tr class="inventory-detail-row">
       <td colspan="4">
         <div class="inventory-detail">
+          <h4>입출고 기록</h4>
           <form class="form-grid log-form" data-item="${item.id}">
-            <label>불출일자 ${renderDateSplitInput("date", { required: true })}</label>
-            <label>개수 <input type="text" inputmode="numeric" class="number-input" name="count" required /></label>
-            <label>재고수량 <input type="text" inputmode="numeric" class="number-input" name="remainingQty" required /></label>
-            <label>수상자 <input type="text" name="recipient" required /></label>
+            <label>일자 ${renderDateSplitInput("date", { required: true })}</label>
+            <label>입고 <input type="text" inputmode="numeric" class="number-input" name="stockIn" placeholder="0" /></label>
+            <label>출고 <input type="text" inputmode="numeric" class="number-input" name="stockOut" placeholder="0" /></label>
+            <label>수상자 <input type="text" name="recipient" placeholder="예: 홍길동" /></label>
             <div class="form-actions" style="grid-column: 1 / -1">
               <button type="submit" class="btn btn-secondary">기록 추가</button>
             </div>
           </form>
           <table class="qc-table">
-            <thead><tr><th>불출일자</th><th>개수</th><th>재고수량</th><th>수상자</th><th></th></tr></thead>
+            <thead><tr><th>일자</th><th>입고</th><th>출고</th><th>재고수량</th><th>수상자</th><th></th></tr></thead>
             <tbody>
               ${
-                logs.length
-                  ? logs
+                logsDesc.length
+                  ? logsDesc
                       .map(
                         (l) => `<tr>
                           <td>${formatDateDisplay(l.date)}</td>
-                          <td>${formatNumber(l.count)}</td>
-                          <td>${formatNumber(l.remainingQty)}</td>
-                          <td>${escapeHtml(l.recipient)}</td>
+                          <td>${l.stockIn ? formatNumber(l.stockIn) : "-"}</td>
+                          <td>${l.stockOut ? formatNumber(l.stockOut) : "-"}</td>
+                          <td>${formatNumber(l.balance)}</td>
+                          <td>${escapeHtml(l.recipient || "-")}</td>
                           <td><button class="btn-icon" data-dellog="${item.id}::${l.id}" title="삭제">🗑️</button></td>
                         </tr>`
                       )
                       .join("")
-                  : `<tr><td colspan="5"><div class="empty-state"><div class="icon">📋</div><p>불출 기록이 없습니다.</p></div></td></tr>`
+                  : `<tr><td colspan="6"><div class="empty-state"><div class="icon">📋</div><p>입출고 기록이 없습니다.</p></div></td></tr>`
               }
             </tbody>
           </table>
@@ -1251,24 +1261,6 @@ function renderInventory(root) {
       })
     );
 
-    root.querySelectorAll("[data-inc]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        const item = DATA.inventory.find((i) => i.id === btn.dataset.inc);
-        item.qty += 1;
-        saveData();
-        draw();
-      })
-    );
-
-    root.querySelectorAll("[data-dec]").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        const item = DATA.inventory.find((i) => i.id === btn.dataset.dec);
-        item.qty = Math.max(0, item.qty - 1);
-        saveData();
-        draw();
-      })
-    );
-
     root.querySelectorAll("[data-del]").forEach((btn) =>
       btn.addEventListener("click", () => {
         DATA.inventory = DATA.inventory.filter((i) => i.id !== btn.dataset.del);
@@ -1284,14 +1276,12 @@ function renderInventory(root) {
         if (!item) return;
         const fd = new FormData(e.target);
         const date = fd.get("date");
+        if (!date) return;
+        const stockIn = parseFormattedNumber(fd.get("stockIn"));
+        const stockOut = parseFormattedNumber(fd.get("stockOut"));
         const recipient = fd.get("recipient").trim();
-        if (!date || !recipient) return;
-        const count = parseFormattedNumber(fd.get("count"));
-        const remainingQty = parseFormattedNumber(fd.get("remainingQty"));
         if (!item.logs) item.logs = [];
-        item.logs.push({ id: uid(), date, count, remainingQty, recipient });
-        // 수량은 날짜상 가장 최근 기록의 재고수량을 따라감(과거 날짜를 나중에 입력해도 안전)
-        item.qty = [...item.logs].sort((a, b) => b.date.localeCompare(a.date))[0].remainingQty;
+        item.logs.push({ id: uid(), date, stockIn, stockOut, recipient });
         saveData();
         draw();
       })
@@ -1303,9 +1293,6 @@ function renderInventory(root) {
         const item = DATA.inventory.find((i) => i.id === itemId);
         if (!item) return;
         item.logs = (item.logs || []).filter((l) => l.id !== logId);
-        if (item.logs.length) {
-          item.qty = [...item.logs].sort((a, b) => b.date.localeCompare(a.date))[0].remainingQty;
-        }
         saveData();
         draw();
       })

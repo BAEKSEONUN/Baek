@@ -683,11 +683,6 @@ table.qc-table tr:hover td {
 }
 
 /* ---------- Inventory ---------- */
-.qty-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .inventory-detail-row td {
   padding: 0;
   background: var(--gray-bg);
