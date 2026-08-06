@@ -683,7 +683,8 @@ function renderTeamCardsHtml(teams) {
 
 function renderScores(root) {
   function draw() {
-    const rounds = [...DATA.rounds].sort((a, b) => a.date.localeCompare(b.date));
+    const chronoRounds = [...DATA.rounds].sort((a, b) => a.date.localeCompare(b.date));
+    const rounds = [...chronoRounds].reverse(); // 표시용: 가장 최근 라운드가 왼쪽에 오도록
     const scheduleOptions = [...DATA.schedules]
       .filter((s) => s.courseId)
       .sort((a, b) => a.date.localeCompare(b.date))
@@ -693,9 +694,9 @@ function renderScores(root) {
       })
       .join("");
 
-    // 팀 분배: 회원별 직전/최근 라운딩 점수
+    // 팀 분배: 회원별 직전/최근 라운딩 점수 (연대순으로 계산해야 "최근"이 정확함)
     const teamRows = DATA.members.map((m) => {
-      const played = rounds
+      const played = chronoRounds
         .map((r) => ({ round: r, score: DATA.scores[`${r.id}::${m.id}`] }))
         .filter((x) => x.score !== undefined && x.score !== null && x.score !== "");
       const latest = played[played.length - 1];
@@ -766,11 +767,13 @@ function renderScores(root) {
                       .map((m) => {
                         const type = m.type || "member";
                         return `<tr>
-                        <td class="sticky-col">
-                          ${escapeHtml(m.name)}
+                        <td class="sticky-col member-cell">
+                          <span class="member-name">${escapeHtml(m.name)}</span>
                           <button class="type-badge type-${type}" data-toggletype="${m.id}" title="클릭하여 정회원/게스트 전환">${MEMBER_TYPE_LABEL[type]}</button>
-                          <button class="btn-icon" data-renamemember="${m.id}" title="이름 수정">✏️</button>
-                          <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button>
+                          <span class="member-actions">
+                            <button class="btn-icon" data-renamemember="${m.id}" title="이름 수정">✏️</button>
+                            <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button>
+                          </span>
                         </td>
                         ${rounds
                           .map((r) => {
