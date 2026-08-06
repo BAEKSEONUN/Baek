@@ -305,3 +305,220 @@ table.qc-table tr:hover td {
     height: 100vh;
   }
 }
+
+/* ---------- Forms ---------- */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.form-grid label,
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--gray-text);
+  font-weight: 600;
+}
+
+.form-grid input,
+.form-grid select,
+.inline-form input,
+.inline-form select {
+  padding: 9px 10px;
+  border: 1px solid var(--gray-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1f2733;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.inline-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.score-toolbar {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 9px 16px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--orange);
+  color: var(--white);
+}
+.btn-primary:hover {
+  background: var(--orange-dark);
+}
+
+.btn-secondary {
+  background: var(--navy);
+  color: var(--white);
+}
+.btn-secondary:hover {
+  background: var(--navy-soft);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--gray-border);
+  color: var(--gray-text);
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.btn-icon:hover {
+  background: var(--gray-bg);
+}
+
+.row-actions {
+  white-space: nowrap;
+}
+
+.course-preview {
+  margin-top: 16px;
+}
+
+.empty-hint {
+  margin: 0;
+  color: var(--orange-dark);
+  font-size: 13px;
+}
+
+.preview-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  background: var(--gray-bg);
+  border: 1px solid var(--gray-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.preview-card div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.preview-card span {
+  font-size: 12px;
+  color: var(--gray-text);
+}
+.preview-card strong {
+  font-size: 15px;
+  color: var(--navy);
+}
+
+/* ---------- Score table ---------- */
+.table-scroll {
+  overflow-x: auto;
+}
+.score-table th,
+.score-table td {
+  white-space: nowrap;
+}
+.score-table .sticky-col {
+  position: sticky;
+  left: 0;
+  background: var(--white);
+  z-index: 1;
+}
+.score-table thead th.sticky-col {
+  background: var(--navy);
+  z-index: 2;
+}
+.score-input {
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--gray-border);
+  border-radius: 6px;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* ---------- Team assignment ---------- */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.team-card {
+  background: var(--gray-bg);
+  border: 1px solid var(--gray-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.team-card h4 {
+  margin: 0 0 8px;
+  color: var(--navy);
+}
+.team-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* ---------- Rules ---------- */
+.rule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rule-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--gray-border);
+}
+.rule-list li:last-child {
+  border-bottom: none;
+}
+.rule-index {
+  background: var(--navy);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.rule-text {
+  flex: 1;
+}
+
+/* ---------- Inventory ---------- */
+.qty-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
