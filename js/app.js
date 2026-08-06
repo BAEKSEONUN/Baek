@@ -694,13 +694,13 @@ function renderScores(root) {
             <thead>
               <tr>
                 <th rowspan="2" class="sticky-col">이름</th>
-                <th rowspan="2">랭킹</th>
                 ${rounds
                   .map((r) => {
                     const course = DATA.courses.find((c) => c.id === r.courseId);
                     return `<th>${course ? escapeHtml(course.name) : "(삭제된 골프장)"} <button class="btn-icon" data-delround="${r.id}" title="라운드 삭제">✕</button></th>`;
                   })
                   .join("")}
+                <th rowspan="2" class="sticky-col-right">랭킹</th>
               </tr>
               <tr>
                 ${rounds.map((r) => `<th>${formatDateDisplay(r.date)}</th>`).join("")}
@@ -713,7 +713,6 @@ function renderScores(root) {
                       .map(
                         (m) => `<tr>
                         <td class="sticky-col">${escapeHtml(m.name)} <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button></td>
-                        <td>${rankMap[m.id] ? rankMap[m.id] + "위" : "-"}</td>
                         ${rounds
                           .map((r) => {
                             const key = `${r.id}::${m.id}`;
@@ -721,6 +720,7 @@ function renderScores(root) {
                             return `<td><input type="number" class="score-input" data-round="${r.id}" data-member="${m.id}" value="${val ?? ""}" placeholder="-" /></td>`;
                           })
                           .join("")}
+                        <td class="sticky-col-right">${rankMap[m.id] ? rankMap[m.id] + "위" : "-"}</td>
                       </tr>`
                       )
                       .join("")
@@ -754,10 +754,8 @@ function renderScores(root) {
           </tbody>
         </table>
         <h4>자동 팀 나누기</h4>
-        <form class="inline-form" id="team-form">
-          <label>팀 수 <input type="number" name="teamCount" min="2" max="${Math.max(2, DATA.members.length)}" value="2" /></label>
-          <button type="submit" class="btn btn-primary">팀 배정</button>
-        </form>
+        <p class="panel-desc">1팀당 4명씩, 최근 라운딩 성적이 좋은 순서대로 1팀 → 2팀 → 3팀 … 순차 배정합니다.</p>
+        <button type="button" class="btn btn-primary" id="team-assign-btn">팀 배정</button>
         <div id="team-result"></div>
       </div>
     `;
@@ -837,21 +835,22 @@ function renderScores(root) {
       });
     });
 
-    root.querySelector("#team-form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const teamCount = Math.max(2, Math.min(DATA.members.length || 2, Number(fd.get("teamCount")) || 2));
+    root.querySelector("#team-assign-btn").addEventListener("click", () => {
+      const TEAM_SIZE = 4;
+      const resultEl = root.querySelector("#team-result");
+      if (!teamSorted.length) {
+        resultEl.innerHTML = "";
+        return;
+      }
+      const teamCount = Math.max(1, Math.ceil(teamSorted.length / TEAM_SIZE));
       const teams = Array.from({ length: teamCount }, () => []);
       teamSorted.forEach((r, idx) => {
-        const round = Math.floor(idx / teamCount);
-        const pos = round % 2 === 0 ? idx % teamCount : teamCount - 1 - (idx % teamCount);
-        teams[pos].push(r.name);
+        teams[idx % teamCount].push(r.name);
       });
-      const resultEl = root.querySelector("#team-result");
       resultEl.innerHTML = `<div class="team-grid">${teams
         .map(
           (t, i) => `<div class="team-card">
-            <h4>Team ${i + 1}</h4>
+            <h4>${i + 1}팀</h4>
             <ul>${t.map((name) => `<li>${escapeHtml(name)}</li>`).join("") || "<li>-</li>"}</ul>
           </div>`
         )

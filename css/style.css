@@ -37,6 +37,10 @@ body {
   flex-direction: column;
   padding: 20px 14px;
   transition: margin-left 0.2s ease;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar.collapsed {
@@ -480,6 +484,16 @@ table.qc-table tr:hover td {
   z-index: 1;
 }
 .score-table thead th.sticky-col {
+  background: var(--navy);
+  z-index: 2;
+}
+.score-table .sticky-col-right {
+  position: sticky;
+  right: 0;
+  background: var(--white);
+  z-index: 1;
+}
+.score-table thead th.sticky-col-right {
   background: var(--navy);
   z-index: 2;
 }
