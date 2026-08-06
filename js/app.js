@@ -12,22 +12,43 @@ const STORAGE_KEY = "golfClubData_v1";
 const DEFAULT_DATA = {
   courses: [], // {id, name, greenFee, caddieFee, mealIncluded, travelMinutes}
   schedules: [], // {id, date, courseId, memo}
-  members: [], // {id, name}
+  members: [], // {id, name, type: "member"|"guest"}
   rounds: [], // {id, courseId, date}  -- 스코어 리스트에 등록된 라운드
   scores: {}, // `${roundId}::${memberId}` -> strokes(number)
   rules: [], // {id, text}
   inventory: [], // {id, name, qty, unit, note}
   cashbook: [], // {id, date, desc, income, expense}
+  teams: [], // memberId[][] -- 팀 분배 결과(수정 가능)
 };
+
+// 최초 도입 시 기존 데이터의 회원을 정회원/게스트로 분류하기 위한 기본 게스트 명단
+const DEFAULT_GUEST_NAME_SET = new Set(
+  ["choi sunyong", "song youwoo", "han geonsun", "jeon inpyo", "jo gisoo", "na euisoo", "zhao junwu"].map((n) => n.toLowerCase())
+);
+
+const MEMBER_TYPE_LABEL = { member: "정회원", guest: "게스트" };
+
+function inferMemberType(name) {
+  return DEFAULT_GUEST_NAME_SET.has(String(name).trim().toLowerCase()) ? "guest" : "member";
+}
+
+function migrateMemberTypes(data) {
+  data.members.forEach((m) => {
+    if (m.type !== "member" && m.type !== "guest") {
+      m.type = inferMemberType(m.name);
+    }
+  });
+  return data;
+}
 
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return JSON.parse(JSON.stringify(DEFAULT_DATA));
+    if (!raw) return migrateMemberTypes(JSON.parse(JSON.stringify(DEFAULT_DATA)));
     const parsed = JSON.parse(raw);
-    return { ...JSON.parse(JSON.stringify(DEFAULT_DATA)), ...parsed };
+    return migrateMemberTypes({ ...JSON.parse(JSON.stringify(DEFAULT_DATA)), ...parsed });
   } catch (e) {
-    return JSON.parse(JSON.stringify(DEFAULT_DATA));
+    return migrateMemberTypes(JSON.parse(JSON.stringify(DEFAULT_DATA)));
   }
 }
 
@@ -193,7 +214,7 @@ function importScoreSheetEntries(parsed) {
   const newMembers = [];
   parsed.members.forEach((name) => {
     if (!DATA.members.some((m) => m.name.trim() === name)) {
-      DATA.members.push({ id: uid(), name });
+      DATA.members.push({ id: uid(), name, type: inferMemberType(name) });
       newMembers.push(name);
     }
   });
@@ -615,6 +636,51 @@ function renderCourses(root) {
 
 /* ==================== 스코어 리스트 (+ 팀 분배) ==================== */
 
+function formatScoreDiff(previousScore, latestScore) {
+  if (previousScore === null || latestScore === null) return "";
+  const diff = latestScore - previousScore;
+  if (diff === 0) return `<span class="diff-flat">±0</span>`;
+  if (diff > 0) return `<span class="diff-up">${diff}↑</span>`;
+  return `<span class="diff-down">${Math.abs(diff)}↓</span>`;
+}
+
+function renderTeamCardsHtml(teams) {
+  if (!teams.length) {
+    return `<p class="empty-hint">아직 배정된 팀이 없습니다. '팀 배정' 버튼을 눌러 자동으로 나눠보세요.</p>`;
+  }
+  const assignedIds = new Set(teams.flat());
+  const availableMembers = DATA.members.filter((m) => !assignedIds.has(m.id));
+  return `<div class="team-grid">${teams
+    .map((team, i) => {
+      const teamOptions = teams.map((_, ti) => `<option value="${ti}" ${ti === i ? "selected" : ""}>${ti + 1}팀</option>`).join("");
+      return `<div class="team-card">
+        <h4>${i + 1}팀 <span class="team-count">(${team.length}명)</span></h4>
+        <ul class="team-member-list">
+          ${
+            team
+              .map((mid) => {
+                const mem = DATA.members.find((m) => m.id === mid);
+                if (!mem) return "";
+                return `<li>
+                  <span>${escapeHtml(mem.name)}</span>
+                  <select class="team-move-select" data-member="${mid}">
+                    ${teamOptions}
+                    <option value="remove">제외</option>
+                  </select>
+                </li>`;
+              })
+              .join("") || `<li class="empty-hint">배정된 회원이 없습니다.</li>`
+          }
+        </ul>
+        <select class="team-add-select" data-team="${i}">
+          <option value="">+ 회원 추가</option>
+          ${availableMembers.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}${m.type === "guest" ? " (게스트)" : ""}</option>`).join("")}
+        </select>
+      </div>`;
+    })
+    .join("")}</div>`;
+}
+
 function renderScores(root) {
   function draw() {
     const rounds = [...DATA.rounds].sort((a, b) => a.date.localeCompare(b.date));
@@ -627,19 +693,6 @@ function renderScores(root) {
       })
       .join("");
 
-    const rankSource = DATA.members.map((m) => {
-      const nums = rounds
-        .map((r) => DATA.scores[`${r.id}::${m.id}`])
-        .filter((v) => v !== undefined && v !== null && v !== "")
-        .map(Number)
-        .filter((n) => !Number.isNaN(n));
-      const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
-      return { id: m.id, avg };
-    });
-    const ranked = rankSource.filter((r) => r.avg !== null).sort((a, b) => a.avg - b.avg);
-    const rankMap = {};
-    ranked.forEach((r, idx) => (rankMap[r.id] = idx + 1));
-
     // 팀 분배: 회원별 직전/최근 라운딩 점수
     const teamRows = DATA.members.map((m) => {
       const played = rounds
@@ -650,6 +703,7 @@ function renderScores(root) {
       return {
         id: m.id,
         name: m.name,
+        type: m.type || "member",
         latestScore: latest ? Number(latest.score) : null,
         latestDate: latest ? latest.round.date : null,
         previousScore: previous ? Number(previous.score) : null,
@@ -666,7 +720,7 @@ function renderScores(root) {
     root.innerHTML = `
       <div class="page-header">
         <h2>스코어 리스트</h2>
-        <p>라운딩별 타수를 입력하면 평균 타수를 기준으로 랭킹이 자동 계산됩니다. 엑셀 파일로 여러 명의 타수를 한 번에 등록할 수도 있습니다.</p>
+        <p>라운딩별 타수를 입력하세요. 엑셀 파일로 여러 명의 타수를 한 번에 등록할 수도 있습니다. 이름 옆 배지를 클릭하면 정회원/게스트를 전환할 수 있습니다.</p>
       </div>
       <div class="panel score-toolbar">
         <form id="member-form" class="inline-form">
@@ -700,7 +754,6 @@ function renderScores(root) {
                     return `<th>${course ? escapeHtml(course.name) : "(삭제된 골프장)"} <button class="btn-icon" data-delround="${r.id}" title="라운드 삭제">✕</button></th>`;
                   })
                   .join("")}
-                <th rowspan="2" class="sticky-col-right">랭킹</th>
               </tr>
               <tr>
                 ${rounds.map((r) => `<th>${formatDateDisplay(r.date)}</th>`).join("")}
@@ -710,9 +763,15 @@ function renderScores(root) {
               ${
                 DATA.members.length
                   ? DATA.members
-                      .map(
-                        (m) => `<tr>
-                        <td class="sticky-col">${escapeHtml(m.name)} <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button></td>
+                      .map((m) => {
+                        const type = m.type || "member";
+                        return `<tr>
+                        <td class="sticky-col">
+                          ${escapeHtml(m.name)}
+                          <button class="type-badge type-${type}" data-toggletype="${m.id}" title="클릭하여 정회원/게스트 전환">${MEMBER_TYPE_LABEL[type]}</button>
+                          <button class="btn-icon" data-renamemember="${m.id}" title="이름 수정">✏️</button>
+                          <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button>
+                        </td>
                         ${rounds
                           .map((r) => {
                             const key = `${r.id}::${m.id}`;
@@ -720,11 +779,10 @@ function renderScores(root) {
                             return `<td><input type="number" class="score-input" data-round="${r.id}" data-member="${m.id}" value="${val ?? ""}" placeholder="-" /></td>`;
                           })
                           .join("")}
-                        <td class="sticky-col-right">${rankMap[m.id] ? rankMap[m.id] + "위" : "-"}</td>
-                      </tr>`
-                      )
+                      </tr>`;
+                      })
                       .join("")
-                  : `<tr><td colspan="${2 + rounds.length}"><div class="empty-state"><div class="icon">👥</div><p>등록된 회원이 없습니다.</p></div></td></tr>`
+                  : `<tr><td colspan="${1 + rounds.length}"><div class="empty-state"><div class="icon">👥</div><p>등록된 회원이 없습니다.</p></div></td></tr>`
               }
             </tbody>
           </table>
@@ -733,9 +791,9 @@ function renderScores(root) {
       </div>
       <div class="panel">
         <h3>팀 분배</h3>
-        <p class="panel-desc">각 회원의 직전 라운딩 점수와 최근 라운딩 점수를 비교하고, 최근 성적이 좋은 순서대로 등수를 매깁니다.</p>
+        <p class="panel-desc">각 회원의 직전 라운딩 점수와 최근 라운딩 점수를 비교하고, 최근 성적이 좋은 순서대로 등수를 매깁니다. (증감: 직전 대비 최근 라운딩 타수 변화, 3타 더 쳤으면 3↑, 4타 덜 쳤으면 4↓)</p>
         <table class="qc-table">
-          <thead><tr><th>등수</th><th>이름</th><th>직전 라운딩 점수</th><th>최근 라운딩 점수</th></tr></thead>
+          <thead><tr><th>등수</th><th>이름</th><th>구분</th><th>직전 라운딩 점수</th><th>최근 라운딩 점수</th></tr></thead>
           <tbody>
             ${
               teamSorted.length
@@ -744,19 +802,20 @@ function renderScores(root) {
                       (r, idx) => `<tr>
                         <td>${r.latestScore !== null ? idx + 1 + "위" : "-"}</td>
                         <td>${escapeHtml(r.name)}</td>
+                        <td><span class="type-tag type-${r.type}">${MEMBER_TYPE_LABEL[r.type]}</span></td>
                         <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
-                        <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ")" : "-"}</td>
+                        <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ") " + formatScoreDiff(r.previousScore, r.latestScore) : "-"}</td>
                       </tr>`
                     )
                     .join("")
-                : `<tr><td colspan="4"><div class="empty-state"><div class="icon">🏌️</div><p>회원과 타수를 먼저 등록하세요.</p></div></td></tr>`
+                : `<tr><td colspan="5"><div class="empty-state"><div class="icon">🏌️</div><p>회원과 타수를 먼저 등록하세요.</p></div></td></tr>`
             }
           </tbody>
         </table>
         <h4>자동 팀 나누기</h4>
-        <p class="panel-desc">1팀당 4명씩, 최근 라운딩 성적이 좋은 순서대로 1팀 → 2팀 → 3팀 … 순차 배정합니다.</p>
+        <p class="panel-desc">정회원만 대상으로, 최근 라운딩 점수 기준 1~4등 1팀, 5~8등 2팀, 9~12등 3팀… 순서로 배정합니다. 배정 후에는 팀별 명단을 직접 수정할 수 있습니다.</p>
         <button type="button" class="btn btn-primary" id="team-assign-btn">팀 배정</button>
-        <div id="team-result"></div>
+        <div id="team-result">${renderTeamCardsHtml(DATA.teams)}</div>
       </div>
     `;
     wire(teamSorted);
@@ -768,7 +827,7 @@ function renderScores(root) {
       const fd = new FormData(e.target);
       const name = fd.get("name").trim();
       if (!name) return;
-      DATA.members.push({ id: uid(), name });
+      DATA.members.push({ id: uid(), name, type: inferMemberType(name) });
       saveData();
       draw();
     });
@@ -812,6 +871,28 @@ function renderScores(root) {
       })
     );
 
+    root.querySelectorAll("[data-toggletype]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const member = DATA.members.find((m) => m.id === btn.dataset.toggletype);
+        if (!member) return;
+        member.type = member.type === "guest" ? "member" : "guest";
+        saveData();
+        draw();
+      })
+    );
+
+    root.querySelectorAll("[data-renamemember]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const member = DATA.members.find((m) => m.id === btn.dataset.renamemember);
+        if (!member) return;
+        const newName = prompt("회원 이름 수정", member.name);
+        if (!newName || !newName.trim()) return;
+        member.name = newName.trim();
+        saveData();
+        draw();
+      })
+    );
+
     root.querySelectorAll("[data-delmember]").forEach((btn) =>
       btn.addEventListener("click", () => {
         if (!confirm("이 회원을 삭제할까요?")) return;
@@ -820,6 +901,7 @@ function renderScores(root) {
         Object.keys(DATA.scores).forEach((k) => {
           if (k.endsWith("::" + mid)) delete DATA.scores[k];
         });
+        DATA.teams = DATA.teams.map((team) => team.filter((id) => id !== mid));
         saveData();
         draw();
       })
@@ -837,25 +919,45 @@ function renderScores(root) {
 
     root.querySelector("#team-assign-btn").addEventListener("click", () => {
       const TEAM_SIZE = 4;
-      const resultEl = root.querySelector("#team-result");
-      if (!teamSorted.length) {
-        resultEl.innerHTML = "";
+      const eligible = teamSorted.filter((r) => r.type !== "guest");
+      if (!eligible.length) {
+        alert("정회원으로 분류된 회원이 없습니다.");
         return;
       }
-      const teamCount = Math.max(1, Math.ceil(teamSorted.length / TEAM_SIZE));
+      if (DATA.teams.length && !confirm("기존 팀 배정을 새로 계산된 팀으로 덮어쓸까요?")) return;
+      const teamCount = Math.max(1, Math.ceil(eligible.length / TEAM_SIZE));
       const teams = Array.from({ length: teamCount }, () => []);
-      teamSorted.forEach((r, idx) => {
-        teams[idx % teamCount].push(r.name);
+      eligible.forEach((r, idx) => {
+        teams[Math.floor(idx / TEAM_SIZE)].push(r.id);
       });
-      resultEl.innerHTML = `<div class="team-grid">${teams
-        .map(
-          (t, i) => `<div class="team-card">
-            <h4>${i + 1}팀</h4>
-            <ul>${t.map((name) => `<li>${escapeHtml(name)}</li>`).join("") || "<li>-</li>"}</ul>
-          </div>`
-        )
-        .join("")}</div>`;
+      DATA.teams = teams;
+      saveData();
+      draw();
     });
+
+    root.querySelectorAll(".team-move-select").forEach((sel) =>
+      sel.addEventListener("change", () => {
+        const mid = sel.dataset.member;
+        DATA.teams = DATA.teams.map((team) => team.filter((id) => id !== mid));
+        if (sel.value !== "remove") {
+          DATA.teams[Number(sel.value)].push(mid);
+        }
+        saveData();
+        draw();
+      })
+    );
+
+    root.querySelectorAll(".team-add-select").forEach((sel) =>
+      sel.addEventListener("change", () => {
+        const mid = sel.value;
+        if (!mid) return;
+        const ti = Number(sel.dataset.team);
+        DATA.teams = DATA.teams.map((team) => team.filter((id) => id !== mid));
+        DATA.teams[ti].push(mid);
+        saveData();
+        draw();
+      })
+    );
   }
 
   draw();
