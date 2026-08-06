@@ -16,7 +16,7 @@ const DEFAULT_DATA = {
   rounds: [], // {id, courseId, date}  -- 스코어 리스트에 등록된 라운드
   scores: {}, // `${roundId}::${memberId}` -> strokes(number)
   rules: [], // {id, text}
-  inventory: [], // {id, name, qty, unit, note}
+  inventory: [], // {id, name, qty, unit, note, logs: [{id, date, count, remainingQty, recipient}]}
   cashbook: [], // {id, date, desc, income, expense}
   teams: [], // memberId[][] -- 팀 분배 결과(수정 가능)
 };
@@ -1079,11 +1079,13 @@ function renderRules(root) {
 /* ==================== 상품재고 ==================== */
 
 function renderInventory(root) {
+  const expandedIds = new Set();
+
   function draw() {
     root.innerHTML = `
       <div class="page-header">
         <h2>상품재고</h2>
-        <p>경품 및 상품 재고를 관리합니다.</p>
+        <p>경품 및 상품 재고를 관리합니다. 품목명 왼쪽 화살표를 누르면 불출 기록을 펼치거나 접을 수 있습니다.</p>
       </div>
       <div class="panel">
         <form class="form-grid" id="inventory-form">
@@ -1097,27 +1099,12 @@ function renderInventory(root) {
         </form>
       </div>
       <div class="panel">
-        <table class="qc-table">
+        <table class="qc-table inventory-table">
           <thead><tr><th>품목명</th><th>수량</th><th>비고</th><th></th></tr></thead>
           <tbody>
             ${
               DATA.inventory.length
-                ? DATA.inventory
-                    .map(
-                      (i) => `<tr>
-                        <td>${escapeHtml(i.name)}</td>
-                        <td>
-                          <div class="qty-control">
-                            <button class="btn-icon" data-dec="${i.id}">−</button>
-                            <span>${formatNumber(i.qty)} ${escapeHtml(i.unit || "")}</span>
-                            <button class="btn-icon" data-inc="${i.id}">＋</button>
-                          </div>
-                        </td>
-                        <td>${escapeHtml(i.note || "-")}</td>
-                        <td><button class="btn-icon" data-del="${i.id}" title="삭제">🗑️</button></td>
-                      </tr>`
-                    )
-                    .join("")
+                ? DATA.inventory.map((item) => renderInventoryItemRows(item, expandedIds.has(item.id))).join("")
                 : `<tr><td colspan="4"><div class="empty-state"><div class="icon">🎁</div><p>등록된 상품이 없습니다.</p></div></td></tr>`
             }
           </tbody>
@@ -1126,6 +1113,65 @@ function renderInventory(root) {
     `;
     wire();
     wireNumberInputs(root);
+  }
+
+  function renderInventoryItemRows(item, expanded) {
+    const logs = [...(item.logs || [])].sort((a, b) => b.date.localeCompare(a.date)); // 최근 날짜가 맨 위로
+    const headerRow = `<tr>
+      <td>
+        <button class="btn-icon" data-toggle="${item.id}" title="불출 기록 ${expanded ? "접기" : "펼치기"}">${expanded ? "▾" : "▸"}</button>
+        ${escapeHtml(item.name)}
+      </td>
+      <td>
+        <div class="qty-control">
+          <button class="btn-icon" data-dec="${item.id}">−</button>
+          <span>${formatNumber(item.qty)} ${escapeHtml(item.unit || "")}</span>
+          <button class="btn-icon" data-inc="${item.id}">＋</button>
+        </div>
+      </td>
+      <td>${escapeHtml(item.note || "-")}</td>
+      <td><button class="btn-icon" data-del="${item.id}" title="삭제">🗑️</button></td>
+    </tr>`;
+
+    if (!expanded) return headerRow;
+
+    const detailRow = `<tr class="inventory-detail-row">
+      <td colspan="4">
+        <div class="inventory-detail">
+          <form class="form-grid log-form" data-item="${item.id}">
+            <label>불출일자 <input type="date" name="date" required /></label>
+            <label>개수 <input type="text" inputmode="numeric" class="number-input" name="count" required /></label>
+            <label>재고수량 <input type="text" inputmode="numeric" class="number-input" name="remainingQty" required /></label>
+            <label>수상자 <input type="text" name="recipient" required /></label>
+            <div class="form-actions" style="grid-column: 1 / -1">
+              <button type="submit" class="btn btn-secondary">기록 추가</button>
+            </div>
+          </form>
+          <table class="qc-table">
+            <thead><tr><th>불출일자</th><th>개수</th><th>재고수량</th><th>수상자</th><th></th></tr></thead>
+            <tbody>
+              ${
+                logs.length
+                  ? logs
+                      .map(
+                        (l) => `<tr>
+                          <td>${formatDateDisplay(l.date)}</td>
+                          <td>${formatNumber(l.count)}</td>
+                          <td>${formatNumber(l.remainingQty)}</td>
+                          <td>${escapeHtml(l.recipient)}</td>
+                          <td><button class="btn-icon" data-dellog="${item.id}::${l.id}" title="삭제">🗑️</button></td>
+                        </tr>`
+                      )
+                      .join("")
+                  : `<tr><td colspan="5"><div class="empty-state"><div class="icon">📋</div><p>불출 기록이 없습니다.</p></div></td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>`;
+
+    return headerRow + detailRow;
   }
 
   function wire() {
@@ -1140,10 +1186,20 @@ function renderInventory(root) {
         qty: parseFormattedNumber(fd.get("qty")),
         unit: fd.get("unit").trim(),
         note: fd.get("note").trim(),
+        logs: [],
       });
       saveData();
       draw();
     });
+
+    root.querySelectorAll("[data-toggle]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.toggle;
+        if (expandedIds.has(id)) expandedIds.delete(id);
+        else expandedIds.add(id);
+        draw();
+      })
+    );
 
     root.querySelectorAll("[data-inc]").forEach((btn) =>
       btn.addEventListener("click", () => {
@@ -1166,6 +1222,40 @@ function renderInventory(root) {
     root.querySelectorAll("[data-del]").forEach((btn) =>
       btn.addEventListener("click", () => {
         DATA.inventory = DATA.inventory.filter((i) => i.id !== btn.dataset.del);
+        saveData();
+        draw();
+      })
+    );
+
+    root.querySelectorAll(".log-form").forEach((form) =>
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const item = DATA.inventory.find((i) => i.id === form.dataset.item);
+        if (!item) return;
+        const fd = new FormData(e.target);
+        const date = fd.get("date");
+        const recipient = fd.get("recipient").trim();
+        if (!date || !recipient) return;
+        const count = parseFormattedNumber(fd.get("count"));
+        const remainingQty = parseFormattedNumber(fd.get("remainingQty"));
+        if (!item.logs) item.logs = [];
+        item.logs.push({ id: uid(), date, count, remainingQty, recipient });
+        // 수량은 날짜상 가장 최근 기록의 재고수량을 따라감(과거 날짜를 나중에 입력해도 안전)
+        item.qty = [...item.logs].sort((a, b) => b.date.localeCompare(a.date))[0].remainingQty;
+        saveData();
+        draw();
+      })
+    );
+
+    root.querySelectorAll("[data-dellog]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const [itemId, logId] = btn.dataset.dellog.split("::");
+        const item = DATA.inventory.find((i) => i.id === itemId);
+        if (!item) return;
+        item.logs = (item.logs || []).filter((l) => l.id !== logId);
+        if (item.logs.length) {
+          item.qty = [...item.logs].sort((a, b) => b.date.localeCompare(a.date))[0].remainingQty;
+        }
         saveData();
         draw();
       })

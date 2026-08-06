@@ -668,3 +668,13 @@ table.qc-table tr:hover td {
   align-items: center;
   gap: 8px;
 }
+.inventory-detail-row td {
+  padding: 0;
+  background: var(--gray-bg);
+}
+.inventory-detail {
+  padding: 16px 20px;
+}
+.inventory-detail .form-grid {
+  margin-bottom: 16px;
+}
