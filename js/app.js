@@ -101,11 +101,15 @@ function formatTravelTime(totalMinutes) {
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
-/* ==================== 스코어 엑셀 일괄등록 ==================== */
+/* ==================== 스코어 엑셀 일괄등록 ====================
+ * "Score List" 형식: B열에 회원 이름, 회원 이름 행 바로 위 2개 행이
+ * 각각 골프장(장소)/날짜(일자) 헤더. 골프장 열 오른쪽에 딸린 RANKING,
+ * FINAL SCORE, FINAL RANKING 열은 앱이 자체적으로 등수를 계산하므로 건너뛴다.
+ */
 
 function normalizeDateValue(val) {
   if (val instanceof Date) {
-    return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(2, "0")}-${String(val.getDate()).padStart(2, "0")}`;
+    return `${val.getUTCFullYear()}-${String(val.getUTCMonth() + 1).padStart(2, "0")}-${String(val.getUTCDate()).padStart(2, "0")}`;
   }
   const s = String(val ?? "").trim();
   const m = s.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})$/);
@@ -113,38 +117,96 @@ function normalizeDateValue(val) {
   return s;
 }
 
-function importScoreRows(rows) {
+const SCORE_SHEET_SKIP_LABELS = new Set(["RANKING", "FINAL SCORE", "FINAL RANKING"]);
+
+function parseScoreSheet(workbook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!sheet || !sheet["!ref"]) {
+    return { rounds: [], members: [], entries: [], error: "시트를 찾을 수 없습니다." };
+  }
+  const range = XLSX.utils.decode_range(sheet["!ref"]);
+
+  function cellAt(r, c) {
+    const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+    if (!cell || cell.v === undefined || cell.v === null) return "";
+    return cell.v;
+  }
+
+  let placeRowIdx = -1;
+  let dateRowIdx = -1;
+  let nameColIdx = -1;
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const v = String(cellAt(r, c)).trim();
+      if (v === "장소") {
+        placeRowIdx = r;
+        nameColIdx = c;
+      }
+      if (v === "일자") {
+        dateRowIdx = r;
+      }
+    }
+  }
+  if (placeRowIdx === -1 || dateRowIdx === -1 || nameColIdx === -1) {
+    return {
+      rounds: [],
+      members: [],
+      entries: [],
+      error: "'장소'/'일자' 헤더를 찾지 못했습니다. 제공된 스코어 리스트 양식과 구조가 다른 파일입니다.",
+    };
+  }
+
+  const rounds = [];
+  for (let c = nameColIdx + 1; c <= range.e.c; c++) {
+    const courseName = String(cellAt(placeRowIdx, c)).trim();
+    if (!courseName || SCORE_SHEET_SKIP_LABELS.has(courseName.toUpperCase())) continue;
+    const date = normalizeDateValue(cellAt(dateRowIdx, c));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    rounds.push({ col: c, courseName, date });
+  }
+
+  const members = [];
+  const entries = [];
+  let blankStreak = 0;
+  for (let r = dateRowIdx + 1; r <= range.e.r; r++) {
+    const name = String(cellAt(r, nameColIdx)).trim();
+    if (!name) {
+      blankStreak++;
+      if (blankStreak >= 3) break;
+      continue;
+    }
+    blankStreak = 0;
+    members.push(name);
+    rounds.forEach(({ col, courseName, date }) => {
+      const raw = cellAt(r, col);
+      if (raw === "") return;
+      const score = Number(raw);
+      if (Number.isNaN(score)) return; // "중도포기" 등 숫자가 아닌 값은 건너뜀
+      entries.push({ name, courseName, date, score });
+    });
+  }
+
+  return { rounds, members, entries, error: null };
+}
+
+function importScoreSheetEntries(parsed) {
+  const newMembers = [];
+  parsed.members.forEach((name) => {
+    if (!DATA.members.some((m) => m.name.trim() === name)) {
+      DATA.members.push({ id: uid(), name });
+      newMembers.push(name);
+    }
+  });
+
+  const newCourses = new Set();
   let success = 0;
-  const failed = [];
-  rows.forEach((row, idx) => {
-    const rowNum = idx + 2; // 1행은 헤더
-    const name = String(row["이름"] ?? "").trim();
-    const courseName = String(row["골프장"] ?? "").trim();
-    const dateRaw = row["날짜"];
-    const scoreRaw = row["타수"];
-    if (!name || !courseName || !dateRaw || scoreRaw === "" || scoreRaw === undefined) {
-      failed.push(`${rowNum}행: 필수 값 누락`);
-      return;
-    }
-    const date = normalizeDateValue(dateRaw);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      failed.push(`${rowNum}행: 날짜 형식 오류 (${dateRaw})`);
-      return;
-    }
-    const score = Number(scoreRaw);
-    if (Number.isNaN(score)) {
-      failed.push(`${rowNum}행: 타수가 숫자가 아님 (${scoreRaw})`);
-      return;
-    }
-    const course = findCourseByName(courseName);
+  parsed.entries.forEach(({ name, courseName, date, score }) => {
+    const member = DATA.members.find((m) => m.name.trim() === name);
+    let course = findCourseByName(courseName);
     if (!course) {
-      failed.push(`${rowNum}행: 등록되지 않은 골프장 (${courseName})`);
-      return;
-    }
-    let member = DATA.members.find((m) => m.name.trim() === name);
-    if (!member) {
-      member = { id: uid(), name };
-      DATA.members.push(member);
+      course = { id: uid(), name: courseName, greenFee: 0, caddieFee: 0, mealIncluded: false, travelMinutes: 0 };
+      DATA.courses.push(course);
+      newCourses.add(courseName);
     }
     let round = DATA.rounds.find((r) => r.courseId === course.id && r.date === date);
     if (!round) {
@@ -154,8 +216,15 @@ function importScoreRows(rows) {
     DATA.scores[`${round.id}::${member.id}`] = score;
     success++;
   });
+
   saveData();
-  return { success, failed };
+  return {
+    success,
+    memberCount: parsed.members.length,
+    roundCount: parsed.rounds.length,
+    newMembers,
+    newCourses: [...newCourses],
+  };
 }
 
 function downloadExcelTemplate() {
@@ -164,12 +233,16 @@ function downloadExcelTemplate() {
     return;
   }
   const wsData = [
-    ["이름", "골프장", "날짜", "타수"],
-    ["홍길동", "남서울CC", "2026-08-15", 88],
+    [],
+    ["", "장소", "OO CC", "△△ CC"],
+    ["", "일자", "2026-08-15", "2026-08-22"],
+    ["", "홍길동", 88, 91],
+    ["", "김철수", 95, 89],
   ];
+  for (let i = 0; i < 15; i++) wsData.push(["", ""]);
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "스코어");
+  XLSX.utils.book_append_sheet(wb, ws, "Score List");
   XLSX.writeFile(wb, "스코어_업로드_양식.xlsx");
 }
 
@@ -183,13 +256,21 @@ function handleExcelUpload(file, onDone) {
     try {
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, { type: "array", cellDates: true });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-      const result = importScoreRows(rows);
-      alert(
-        `일괄등록 완료: 성공 ${result.success}건, 실패 ${result.failed.length}건` +
-          (result.failed.length ? "\n\n실패 사유:\n" + result.failed.join("\n") : "")
-      );
+      const parsed = parseScoreSheet(wb);
+      if (parsed.error) {
+        alert(parsed.error);
+        return;
+      }
+      if (!parsed.members.length) {
+        alert("등록할 회원 데이터를 찾지 못했습니다. B열에 회원 이름이 있는지 확인하세요.");
+        return;
+      }
+      const result = importScoreSheetEntries(parsed);
+      let msg = `일괄등록 완료: 회원 ${result.memberCount}명, 라운드 ${result.roundCount}개, 스코어 ${result.success}건이 등록되었습니다.`;
+      if (result.newCourses.length) {
+        msg += `\n\n새로 등록된 골프장(그린피 등 상세 정보를 '골프장 정보'에서 입력하세요): ${result.newCourses.join(", ")}`;
+      }
+      alert(msg);
       onDone();
     } catch (err) {
       alert("파일을 읽는 중 오류가 발생했습니다: " + err.message);
