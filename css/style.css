@@ -507,7 +507,7 @@ table.qc-table tr:hover td {
   visibility: visible;
 }
 
-/* ---------- 정회원/게스트 구분 ---------- */
+/* ---------- 멤버/게스트 구분 ---------- */
 .type-badge {
   border: none;
   border-radius: 999px;

@@ -21,12 +21,12 @@ const DEFAULT_DATA = {
   teams: [], // memberId[][] -- 팀 분배 결과(수정 가능)
 };
 
-// 최초 도입 시 기존 데이터의 회원을 정회원/게스트로 분류하기 위한 기본 게스트 명단
+// 최초 도입 시 기존 데이터의 회원을 멤버/게스트로 분류하기 위한 기본 게스트 명단
 const DEFAULT_GUEST_NAME_SET = new Set(
   ["choi sunyong", "song youwoo", "han geonsun", "jeon inpyo", "jo gisoo", "na euisoo", "zhao junwu"].map((n) => n.toLowerCase())
 );
 
-const MEMBER_TYPE_LABEL = { member: "정회원", guest: "게스트" };
+const MEMBER_TYPE_LABEL = { member: "멤버", guest: "게스트" };
 
 function inferMemberType(name) {
   return DEFAULT_GUEST_NAME_SET.has(String(name).trim().toLowerCase()) ? "guest" : "member";
@@ -78,6 +78,36 @@ function formatNumber(n) {
   const num = Number(n);
   if (Number.isNaN(num)) return "0";
   return num.toLocaleString("ko-KR");
+}
+
+// 숫자 입력창에 천 단위 쉼표를 실시간으로 표시하기 위한 헬퍼
+function formatNumberInputValue(raw) {
+  const digits = String(raw ?? "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  return Number(digits).toLocaleString("ko-KR");
+}
+
+function parseFormattedNumber(value) {
+  return Number(String(value ?? "").replace(/[^0-9]/g, "")) || 0;
+}
+
+function wireNumberInputs(root) {
+  root.querySelectorAll(".number-input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const digitsBeforeCursor = input.value.slice(0, input.selectionStart).replace(/[^0-9]/g, "").length;
+      input.value = formatNumberInputValue(input.value);
+      let seen = 0;
+      let pos = input.value.length;
+      for (let i = 0; i < input.value.length; i++) {
+        if (/[0-9]/.test(input.value[i])) seen++;
+        if (seen === digitsBeforeCursor) {
+          pos = i + 1;
+          break;
+        }
+      }
+      input.setSelectionRange(pos, pos);
+    });
+  });
 }
 
 const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"];
@@ -536,10 +566,10 @@ function renderCourses(root) {
             <input type="text" name="name" required value="${escapeHtml(editing?.name ?? "")}" placeholder="예: 남서울CC" />
           </label>
           <label>그린피 (원)
-            <input type="number" name="greenFee" min="0" step="1000" value="${editing?.greenFee ?? ""}" />
+            <input type="text" inputmode="numeric" name="greenFee" class="number-input" value="${editing ? formatNumberInputValue(editing.greenFee) : ""}" />
           </label>
           <label>캐디피 (원)
-            <input type="number" name="caddieFee" min="0" step="1000" value="${editing?.caddieFee ?? ""}" />
+            <input type="text" inputmode="numeric" name="caddieFee" class="number-input" value="${editing ? formatNumberInputValue(editing.caddieFee) : ""}" />
           </label>
           <label>식비 포함 여부
             <select name="mealIncluded">
@@ -589,6 +619,7 @@ function renderCourses(root) {
       </div>
     `;
     wire();
+    wireNumberInputs(root);
   }
 
   function wire() {
@@ -597,8 +628,8 @@ function renderCourses(root) {
       const fd = new FormData(e.target);
       const payload = {
         name: fd.get("name").trim(),
-        greenFee: Number(fd.get("greenFee")) || 0,
-        caddieFee: Number(fd.get("caddieFee")) || 0,
+        greenFee: parseFormattedNumber(fd.get("greenFee")),
+        caddieFee: parseFormattedNumber(fd.get("caddieFee")),
         mealIncluded: fd.get("mealIncluded") === "true",
         travelMinutes: (Number(fd.get("travelHours")) || 0) * 60 + (Number(fd.get("travelMins")) || 0),
       };
@@ -717,7 +748,7 @@ function renderScores(root) {
       if (b.latestScore === null) return -1;
       return a.latestScore - b.latestScore;
     };
-    // 등수는 정회원끼리만: 게스트는 등수 없이 정회원 명단 아래에 표시
+    // 등수는 멤버끼리만: 게스트는 등수 없이 멤버 명단 아래에 표시
     const memberRows = teamRows.filter((r) => r.type !== "guest").sort(byLatestScore);
     const guestRows = teamRows.filter((r) => r.type === "guest").sort(byLatestScore);
 
@@ -745,7 +776,7 @@ function renderScores(root) {
     root.innerHTML = `
       <div class="page-header">
         <h2>스코어 리스트</h2>
-        <p>라운딩별 타수를 입력하세요. 엑셀 파일로 여러 명의 타수를 한 번에 등록할 수도 있습니다. 이름 옆 배지를 클릭하면 정회원/게스트를 전환할 수 있습니다.</p>
+        <p>라운딩별 타수를 입력하세요. 엑셀 파일로 여러 명의 타수를 한 번에 등록할 수도 있습니다. 이름 옆 배지를 클릭하면 멤버/게스트를 전환할 수 있습니다.</p>
       </div>
       <div class="panel score-toolbar">
         <form id="member-form" class="inline-form">
@@ -793,7 +824,7 @@ function renderScores(root) {
                         return `<tr>
                         <td class="sticky-col member-cell">
                           <span class="member-name">${escapeHtml(m.name)}</span>
-                          <button class="type-badge type-${type}" data-toggletype="${m.id}" title="클릭하여 정회원/게스트 전환">${MEMBER_TYPE_LABEL[type]}</button>
+                          <button class="type-badge type-${type}" data-toggletype="${m.id}" title="클릭하여 멤버/게스트 전환">${MEMBER_TYPE_LABEL[type]}</button>
                           <span class="member-actions">
                             <button class="btn-icon" data-renamemember="${m.id}" title="이름 수정">✏️</button>
                             <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button>
@@ -819,7 +850,7 @@ function renderScores(root) {
       <div class="panel">
         <h3>팀 분배</h3>
         <p class="panel-desc">
-          등수는 정회원끼리만 매기며, 게스트는 등수 없이 정회원 명단 아래에 표시됩니다.
+          등수는 멤버끼리만 매기며, 게스트는 등수 없이 멤버 명단 아래에 표시됩니다.
           (증감: 직전 대비 최근 라운딩 타수 변화, 3타 더 쳤으면 3↑, 4타 덜 쳤으면 4↓)
           🔥최다 개선은 직전 대비 타수를 가장 많이 줄인 회원, ⚠️10타↑ 부진은 직전보다 10타 이상 많이 친 회원입니다.
         </p>
@@ -836,7 +867,7 @@ function renderScores(root) {
           </tbody>
         </table>
         <h4>자동 팀 나누기</h4>
-        <p class="panel-desc">정회원만 대상으로, 최근 라운딩 점수 기준 1~4등 1팀, 5~8등 2팀, 9~12등 3팀… 순서로 배정합니다. 배정 후에는 팀별 명단을 직접 수정할 수 있습니다.</p>
+        <p class="panel-desc">멤버만 대상으로, 최근 라운딩 점수 기준 1~4등 1팀, 5~8등 2팀, 9~12등 3팀… 순서로 배정합니다. 배정 후에는 팀별 명단을 직접 수정할 수 있습니다.</p>
         <button type="button" class="btn btn-primary" id="team-assign-btn">팀 배정</button>
         <div id="team-result">${renderTeamCardsHtml(DATA.teams)}</div>
       </div>
@@ -944,7 +975,7 @@ function renderScores(root) {
       const TEAM_SIZE = 4;
       const eligible = memberRows;
       if (!eligible.length) {
-        alert("정회원으로 분류된 회원이 없습니다.");
+        alert("멤버로 분류된 회원이 없습니다.");
         return;
       }
       if (DATA.teams.length && !confirm("기존 팀 배정을 새로 계산된 팀으로 덮어쓸까요?")) return;
@@ -1057,7 +1088,7 @@ function renderInventory(root) {
       <div class="panel">
         <form class="form-grid" id="inventory-form">
           <label>품목명 <input type="text" name="name" required /></label>
-          <label>수량 <input type="number" name="qty" min="0" value="0" /></label>
+          <label>수량 <input type="text" inputmode="numeric" name="qty" class="number-input" value="0" /></label>
           <label>단위 <input type="text" name="unit" placeholder="예: 개, 세트" /></label>
           <label>비고 <input type="text" name="note" /></label>
           <div class="form-actions" style="grid-column: 1 / -1">
@@ -1078,7 +1109,7 @@ function renderInventory(root) {
                         <td>
                           <div class="qty-control">
                             <button class="btn-icon" data-dec="${i.id}">−</button>
-                            <span>${i.qty} ${escapeHtml(i.unit || "")}</span>
+                            <span>${formatNumber(i.qty)} ${escapeHtml(i.unit || "")}</span>
                             <button class="btn-icon" data-inc="${i.id}">＋</button>
                           </div>
                         </td>
@@ -1094,6 +1125,7 @@ function renderInventory(root) {
       </div>
     `;
     wire();
+    wireNumberInputs(root);
   }
 
   function wire() {
@@ -1105,7 +1137,7 @@ function renderInventory(root) {
       DATA.inventory.push({
         id: uid(),
         name,
-        qty: Number(fd.get("qty")) || 0,
+        qty: parseFormattedNumber(fd.get("qty")),
         unit: fd.get("unit").trim(),
         note: fd.get("note").trim(),
       });
@@ -1176,7 +1208,7 @@ function renderCashbook(root) {
               <option value="expense">지출</option>
             </select>
           </label>
-          <label>금액 <input type="number" name="amount" min="0" required /></label>
+          <label>금액 <input type="text" inputmode="numeric" name="amount" class="number-input" required /></label>
           <div class="form-actions" style="grid-column: 1 / -1">
             <button type="submit" class="btn btn-primary">내역 추가</button>
           </div>
@@ -1207,6 +1239,7 @@ function renderCashbook(root) {
       </div>
     `;
     wire();
+    wireNumberInputs(root);
   }
 
   function wire() {
@@ -1215,7 +1248,7 @@ function renderCashbook(root) {
       const fd = new FormData(e.target);
       const date = fd.get("date");
       const desc = fd.get("desc").trim();
-      const amount = Number(fd.get("amount")) || 0;
+      const amount = parseFormattedNumber(fd.get("amount"));
       const type = fd.get("type");
       if (!date || !desc || !amount) return;
       DATA.cashbook.push({
