@@ -737,8 +737,8 @@ function renderScores(root) {
         <td>${rankLabel}</td>
         <td>${escapeHtml(r.name)}</td>
         <td><span class="type-tag type-${r.type}">${MEMBER_TYPE_LABEL[r.type]}</span></td>
-        <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
         <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ") " + formatScoreDiff(r.previousScore, r.latestScore) + badges : "-"}</td>
+        <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
       </tr>`;
     }
 
@@ -824,7 +824,7 @@ function renderScores(root) {
           🔥최다 개선은 직전 대비 타수를 가장 많이 줄인 회원, ⚠️10타↑ 부진은 직전보다 10타 이상 많이 친 회원입니다.
         </p>
         <table class="qc-table">
-          <thead><tr><th>등수</th><th>이름</th><th>구분</th><th>직전 라운딩 점수</th><th>최근 라운딩 점수</th></tr></thead>
+          <thead><tr><th>등수</th><th>이름</th><th>구분</th><th>최근 라운딩 점수</th><th>직전 라운딩 점수</th></tr></thead>
           <tbody>
             ${
               memberRows.length || guestRows.length
