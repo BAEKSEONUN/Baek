@@ -546,6 +546,28 @@ table.qc-table tr:hover td {
   color: var(--gray-text);
   font-weight: 700;
 }
+.badge-best,
+.badge-warn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.badge-best {
+  background: #fff2e2;
+  color: var(--orange-dark);
+}
+.badge-warn {
+  background: #fdeaea;
+  color: #c0392b;
+}
+.section-divider-row td {
+  padding: 0;
+  border-bottom: 2px solid var(--gray-border);
+}
 
 /* ---------- Team assignment ---------- */
 .team-grid {

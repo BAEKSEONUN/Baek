@@ -711,12 +711,36 @@ function renderScores(root) {
         previousDate: previous ? previous.round.date : null,
       };
     });
-    const teamSorted = [...teamRows].sort((a, b) => {
+    const byLatestScore = (a, b) => {
       if (a.latestScore === null && b.latestScore === null) return 0;
       if (a.latestScore === null) return 1;
       if (b.latestScore === null) return -1;
       return a.latestScore - b.latestScore;
-    });
+    };
+    // 등수는 정회원끼리만: 게스트는 등수 없이 정회원 명단 아래에 표시
+    const memberRows = teamRows.filter((r) => r.type !== "guest").sort(byLatestScore);
+    const guestRows = teamRows.filter((r) => r.type === "guest").sort(byLatestScore);
+
+    // 직전 대비 최근 라운딩 타수 증감이 있는 사람 중 최다 개선자 / 10타 이상 부진자 표시
+    const diffed = teamRows.filter((r) => r.previousScore !== null && r.latestScore !== null);
+    const minDiff = diffed.length ? Math.min(...diffed.map((r) => r.latestScore - r.previousScore)) : null;
+    const bestImproverIds = new Set(
+      minDiff !== null && minDiff < 0 ? diffed.filter((r) => r.latestScore - r.previousScore === minDiff).map((r) => r.id) : []
+    );
+    const bigWorsenIds = new Set(diffed.filter((r) => r.latestScore - r.previousScore >= 10).map((r) => r.id));
+
+    function buildTeamRankRow(r, rankLabel) {
+      const badges =
+        (bestImproverIds.has(r.id) ? ` <span class="badge-best" title="직전 대비 타수를 가장 많이 줄인 회원">🔥최다 개선</span>` : "") +
+        (bigWorsenIds.has(r.id) ? ` <span class="badge-warn" title="직전 라운딩보다 10타 이상 많이 침">⚠️10타↑ 부진</span>` : "");
+      return `<tr>
+        <td>${rankLabel}</td>
+        <td>${escapeHtml(r.name)}</td>
+        <td><span class="type-tag type-${r.type}">${MEMBER_TYPE_LABEL[r.type]}</span></td>
+        <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
+        <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ") " + formatScoreDiff(r.previousScore, r.latestScore) + badges : "-"}</td>
+      </tr>`;
+    }
 
     root.innerHTML = `
       <div class="page-header">
@@ -794,23 +818,19 @@ function renderScores(root) {
       </div>
       <div class="panel">
         <h3>팀 분배</h3>
-        <p class="panel-desc">각 회원의 직전 라운딩 점수와 최근 라운딩 점수를 비교하고, 최근 성적이 좋은 순서대로 등수를 매깁니다. (증감: 직전 대비 최근 라운딩 타수 변화, 3타 더 쳤으면 3↑, 4타 덜 쳤으면 4↓)</p>
+        <p class="panel-desc">
+          등수는 정회원끼리만 매기며, 게스트는 등수 없이 정회원 명단 아래에 표시됩니다.
+          (증감: 직전 대비 최근 라운딩 타수 변화, 3타 더 쳤으면 3↑, 4타 덜 쳤으면 4↓)
+          🔥최다 개선은 직전 대비 타수를 가장 많이 줄인 회원, ⚠️10타↑ 부진은 직전보다 10타 이상 많이 친 회원입니다.
+        </p>
         <table class="qc-table">
           <thead><tr><th>등수</th><th>이름</th><th>구분</th><th>직전 라운딩 점수</th><th>최근 라운딩 점수</th></tr></thead>
           <tbody>
             ${
-              teamSorted.length
-                ? teamSorted
-                    .map(
-                      (r, idx) => `<tr>
-                        <td>${r.latestScore !== null ? idx + 1 + "위" : "-"}</td>
-                        <td>${escapeHtml(r.name)}</td>
-                        <td><span class="type-tag type-${r.type}">${MEMBER_TYPE_LABEL[r.type]}</span></td>
-                        <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
-                        <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ") " + formatScoreDiff(r.previousScore, r.latestScore) : "-"}</td>
-                      </tr>`
-                    )
-                    .join("")
+              memberRows.length || guestRows.length
+                ? memberRows.map((r, idx) => buildTeamRankRow(r, r.latestScore !== null ? idx + 1 + "위" : "-")).join("") +
+                  (guestRows.length ? `<tr class="section-divider-row"><td colspan="5"></td></tr>` : "") +
+                  guestRows.map((r) => buildTeamRankRow(r, "-")).join("")
                 : `<tr><td colspan="5"><div class="empty-state"><div class="icon">🏌️</div><p>회원과 타수를 먼저 등록하세요.</p></div></td></tr>`
             }
           </tbody>
@@ -821,10 +841,10 @@ function renderScores(root) {
         <div id="team-result">${renderTeamCardsHtml(DATA.teams)}</div>
       </div>
     `;
-    wire(teamSorted);
+    wire(memberRows);
   }
 
-  function wire(teamSorted) {
+  function wire(memberRows) {
     root.querySelector("#member-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -922,7 +942,7 @@ function renderScores(root) {
 
     root.querySelector("#team-assign-btn").addEventListener("click", () => {
       const TEAM_SIZE = 4;
-      const eligible = teamSorted.filter((r) => r.type !== "guest");
+      const eligible = memberRows;
       if (!eligible.length) {
         alert("정회원으로 분류된 회원이 없습니다.");
         return;
