@@ -752,7 +752,7 @@ function renderScores(root) {
                 ${rounds
                   .map((r) => {
                     const course = DATA.courses.find((c) => c.id === r.courseId);
-                    return `<th>${course ? escapeHtml(course.name) : "(삭제된 골프장)"} <button class="btn-icon" data-delround="${r.id}" title="라운드 삭제">✕</button></th>`;
+                    return `<th>${course ? escapeHtml(course.name) : "(삭제된 골프장)"} <button class="btn-icon" data-delround="${r.id}" title="라운드 삭제">🗑️</button></th>`;
                   })
                   .join("")}
               </tr>
@@ -976,9 +976,9 @@ function renderRules(root) {
         <p>동호회 내규 및 라운딩 규칙을 관리합니다.</p>
       </div>
       <div class="panel">
-        <form class="inline-form" id="rule-form">
-          <input type="text" name="text" placeholder="예: OB 발생 시 1벌타 후 규정 구역에서 플레이" required />
+        <form class="rule-form" id="rule-form">
           <button type="submit" class="btn btn-primary">규칙 추가</button>
+          <input type="text" name="text" class="rule-input" placeholder="예: OB 발생 시 1벌타 후 규정 구역에서 플레이" required />
         </form>
       </div>
       <div class="panel">
