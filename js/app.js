@@ -93,6 +93,111 @@ function findCourseByName(name) {
   return DATA.courses.find((c) => c.name.trim().toLowerCase() === target) || null;
 }
 
+function formatTravelTime(totalMinutes) {
+  const n = Number(totalMinutes);
+  if (!n) return "-";
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+/* ==================== 스코어 엑셀 일괄등록 ==================== */
+
+function normalizeDateValue(val) {
+  if (val instanceof Date) {
+    return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(2, "0")}-${String(val.getDate()).padStart(2, "0")}`;
+  }
+  const s = String(val ?? "").trim();
+  const m = s.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  return s;
+}
+
+function importScoreRows(rows) {
+  let success = 0;
+  const failed = [];
+  rows.forEach((row, idx) => {
+    const rowNum = idx + 2; // 1행은 헤더
+    const name = String(row["이름"] ?? "").trim();
+    const courseName = String(row["골프장"] ?? "").trim();
+    const dateRaw = row["날짜"];
+    const scoreRaw = row["타수"];
+    if (!name || !courseName || !dateRaw || scoreRaw === "" || scoreRaw === undefined) {
+      failed.push(`${rowNum}행: 필수 값 누락`);
+      return;
+    }
+    const date = normalizeDateValue(dateRaw);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      failed.push(`${rowNum}행: 날짜 형식 오류 (${dateRaw})`);
+      return;
+    }
+    const score = Number(scoreRaw);
+    if (Number.isNaN(score)) {
+      failed.push(`${rowNum}행: 타수가 숫자가 아님 (${scoreRaw})`);
+      return;
+    }
+    const course = findCourseByName(courseName);
+    if (!course) {
+      failed.push(`${rowNum}행: 등록되지 않은 골프장 (${courseName})`);
+      return;
+    }
+    let member = DATA.members.find((m) => m.name.trim() === name);
+    if (!member) {
+      member = { id: uid(), name };
+      DATA.members.push(member);
+    }
+    let round = DATA.rounds.find((r) => r.courseId === course.id && r.date === date);
+    if (!round) {
+      round = { id: uid(), courseId: course.id, date };
+      DATA.rounds.push(round);
+    }
+    DATA.scores[`${round.id}::${member.id}`] = score;
+    success++;
+  });
+  saveData();
+  return { success, failed };
+}
+
+function downloadExcelTemplate() {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 기능을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.");
+    return;
+  }
+  const wsData = [
+    ["이름", "골프장", "날짜", "타수"],
+    ["홍길동", "남서울CC", "2026-08-15", 88],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "스코어");
+  XLSX.writeFile(wb, "스코어_업로드_양식.xlsx");
+}
+
+function handleExcelUpload(file, onDone) {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 기능을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: "array", cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const result = importScoreRows(rows);
+      alert(
+        `일괄등록 완료: 성공 ${result.success}건, 실패 ${result.failed.length}건` +
+          (result.failed.length ? "\n\n실패 사유:\n" + result.failed.join("\n") : "")
+      );
+      onDone();
+    } catch (err) {
+      alert("파일을 읽는 중 오류가 발생했습니다: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 /* ==================== 메뉴 구성 ==================== */
 
 const MENU_ITEMS = [
@@ -100,7 +205,6 @@ const MENU_ITEMS = [
   { id: "schedule", icon: "📅", label: "골프 일정", render: renderSchedule },
   { id: "courses", icon: "⛳", label: "골프장 정보", render: renderCourses },
   { id: "scores", icon: "🏌️", label: "스코어 리스트", render: renderScores },
-  { id: "teams", icon: "👥", label: "팀 분배", render: renderTeams },
   { id: "rules", icon: "📖", label: "골프룰", render: renderRules },
   { id: "inventory", icon: "🎁", label: "상품재고", render: renderInventory },
   { id: "cashbook", icon: "💰", label: "현금장부", render: renderCashbook },
@@ -232,7 +336,7 @@ function renderSchedule(root) {
                         <td>${course ? formatNumber(course.greenFee) + "원" : "-"}</td>
                         <td>${course ? formatNumber(course.caddieFee) + "원" : "-"}</td>
                         <td>${course ? (course.mealIncluded ? "포함" : "미포함") : "-"}</td>
-                        <td>${course && course.travelMinutes ? course.travelMinutes + "분" : "-"}</td>
+                        <td>${course ? formatTravelTime(course.travelMinutes) : "-"}</td>
                         <td>${escapeHtml(s.memo || "-")}</td>
                         <td><button class="btn-icon" data-del="${s.id}" title="삭제">🗑️</button></td>
                       </tr>`;
@@ -260,7 +364,7 @@ function renderSchedule(root) {
         <div><span>그린피</span><strong>${formatNumber(course.greenFee)}원</strong></div>
         <div><span>캐디피</span><strong>${formatNumber(course.caddieFee)}원</strong></div>
         <div><span>식비</span><strong>${course.mealIncluded ? "포함" : "미포함"}</strong></div>
-        <div><span>소요시간</span><strong>${course.travelMinutes ? course.travelMinutes + "분" : "-"}</strong></div>
+        <div><span>소요시간</span><strong>${formatTravelTime(course.travelMinutes)}</strong></div>
       </div>`;
   }
 
@@ -341,8 +445,13 @@ function renderCourses(root) {
               <option value="false" ${editing && !editing.mealIncluded ? "selected" : ""}>미포함</option>
             </select>
           </label>
-          <label>회사 출발 기준 소요시간 (분)
-            <input type="number" name="travelMinutes" min="0" step="5" value="${editing?.travelMinutes ?? ""}" />
+          <label>회사 출발 기준 소요시간
+            <div class="time-input-group">
+              <input type="number" name="travelHours" min="0" placeholder="시간" value="${editing ? Math.floor(editing.travelMinutes / 60) : ""}" />
+              <span>시간</span>
+              <input type="number" name="travelMins" min="0" max="59" placeholder="분" value="${editing ? editing.travelMinutes % 60 : ""}" />
+              <span>분</span>
+            </div>
           </label>
           <div class="form-actions" style="grid-column: 1 / -1">
             <button type="submit" class="btn btn-primary">${editing ? "수정 완료" : "추가"}</button>
@@ -363,7 +472,7 @@ function renderCourses(root) {
                         <td>${formatNumber(c.greenFee)}원</td>
                         <td>${formatNumber(c.caddieFee)}원</td>
                         <td><span class="status-pill ${c.mealIncluded ? "status-pass" : "status-pending"}">${c.mealIncluded ? "포함" : "미포함"}</span></td>
-                        <td>${c.travelMinutes ? c.travelMinutes + "분" : "-"}</td>
+                        <td>${formatTravelTime(c.travelMinutes)}</td>
                         <td class="row-actions">
                           <button class="btn-icon" data-edit="${c.id}" title="수정">✏️</button>
                           <button class="btn-icon" data-del="${c.id}" title="삭제">🗑️</button>
@@ -389,7 +498,7 @@ function renderCourses(root) {
         greenFee: Number(fd.get("greenFee")) || 0,
         caddieFee: Number(fd.get("caddieFee")) || 0,
         mealIncluded: fd.get("mealIncluded") === "true",
-        travelMinutes: Number(fd.get("travelMinutes")) || 0,
+        travelMinutes: (Number(fd.get("travelHours")) || 0) * 60 + (Number(fd.get("travelMins")) || 0),
       };
       if (!payload.name) return;
       if (editingId) {
@@ -423,7 +532,7 @@ function renderCourses(root) {
   draw();
 }
 
-/* ==================== 스코어 리스트 ==================== */
+/* ==================== 스코어 리스트 (+ 팀 분배) ==================== */
 
 function renderScores(root) {
   function draw() {
@@ -450,10 +559,33 @@ function renderScores(root) {
     const rankMap = {};
     ranked.forEach((r, idx) => (rankMap[r.id] = idx + 1));
 
+    // 팀 분배: 회원별 직전/최근 라운딩 점수
+    const teamRows = DATA.members.map((m) => {
+      const played = rounds
+        .map((r) => ({ round: r, score: DATA.scores[`${r.id}::${m.id}`] }))
+        .filter((x) => x.score !== undefined && x.score !== null && x.score !== "");
+      const latest = played[played.length - 1];
+      const previous = played[played.length - 2];
+      return {
+        id: m.id,
+        name: m.name,
+        latestScore: latest ? Number(latest.score) : null,
+        latestDate: latest ? latest.round.date : null,
+        previousScore: previous ? Number(previous.score) : null,
+        previousDate: previous ? previous.round.date : null,
+      };
+    });
+    const teamSorted = [...teamRows].sort((a, b) => {
+      if (a.latestScore === null && b.latestScore === null) return 0;
+      if (a.latestScore === null) return 1;
+      if (b.latestScore === null) return -1;
+      return a.latestScore - b.latestScore;
+    });
+
     root.innerHTML = `
       <div class="page-header">
         <h2>스코어 리스트</h2>
-        <p>라운딩별 타수를 입력하면 평균 타수를 기준으로 랭킹이 자동 계산됩니다.</p>
+        <p>라운딩별 타수를 입력하면 평균 타수를 기준으로 랭킹이 자동 계산됩니다. 엑셀 파일로 여러 명의 타수를 한 번에 등록할 수도 있습니다.</p>
       </div>
       <div class="panel score-toolbar">
         <form id="member-form" class="inline-form">
@@ -467,6 +599,13 @@ function renderScores(root) {
           </select>
           <button type="submit" class="btn btn-secondary">라운드 추가</button>
         </form>
+        <div class="inline-form">
+          <button type="button" class="btn btn-ghost" id="excel-template-btn">엑셀 양식 다운로드</button>
+          <label class="btn btn-secondary file-btn">
+            엑셀 일괄등록
+            <input type="file" id="excel-upload" accept=".xlsx,.xls,.csv" hidden />
+          </label>
+        </div>
       </div>
       <div class="panel score-panel">
         <div class="table-scroll">
@@ -511,11 +650,40 @@ function renderScores(root) {
         </div>
         ${!rounds.length ? `<div class="empty-state"><div class="icon">⛳</div><p>등록된 라운드가 없습니다. 먼저 '골프 일정'에서 골프장을 지정한 일정을 등록하세요.</p></div>` : ""}
       </div>
+      <div class="panel">
+        <h3>팀 분배</h3>
+        <p class="panel-desc">각 회원의 직전 라운딩 점수와 최근 라운딩 점수를 비교하고, 최근 성적이 좋은 순서대로 등수를 매깁니다.</p>
+        <table class="qc-table">
+          <thead><tr><th>등수</th><th>이름</th><th>직전 라운딩 점수</th><th>최근 라운딩 점수</th></tr></thead>
+          <tbody>
+            ${
+              teamSorted.length
+                ? teamSorted
+                    .map(
+                      (r, idx) => `<tr>
+                        <td>${r.latestScore !== null ? idx + 1 + "위" : "-"}</td>
+                        <td>${escapeHtml(r.name)}</td>
+                        <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
+                        <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ")" : "-"}</td>
+                      </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="4"><div class="empty-state"><div class="icon">🏌️</div><p>회원과 타수를 먼저 등록하세요.</p></div></td></tr>`
+            }
+          </tbody>
+        </table>
+        <h4>자동 팀 나누기</h4>
+        <form class="inline-form" id="team-form">
+          <label>팀 수 <input type="number" name="teamCount" min="2" max="${Math.max(2, DATA.members.length)}" value="2" /></label>
+          <button type="submit" class="btn btn-primary">팀 배정</button>
+        </form>
+        <div id="team-result"></div>
+      </div>
     `;
-    wire();
+    wire(teamSorted);
   }
 
-  function wire() {
+  function wire(teamSorted) {
     root.querySelector("#member-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -539,6 +707,17 @@ function renderScores(root) {
       DATA.rounds.push({ id: uid(), courseId: schedule.courseId, date: schedule.date });
       saveData();
       draw();
+    });
+
+    root.querySelector("#excel-template-btn").addEventListener("click", () => {
+      downloadExcelTemplate();
+    });
+
+    root.querySelector("#excel-upload").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      handleExcelUpload(file, () => draw());
+      e.target.value = "";
     });
 
     root.querySelectorAll("[data-delround]").forEach((btn) =>
@@ -576,85 +755,13 @@ function renderScores(root) {
         draw();
       });
     });
-  }
 
-  draw();
-}
-
-/* ==================== 팀 분배 ==================== */
-
-function renderTeams(root) {
-  function draw() {
-    const rounds = [...DATA.rounds].sort((a, b) => a.date.localeCompare(b.date));
-    const rows = DATA.members.map((m) => {
-      const played = rounds
-        .map((r) => ({ round: r, score: DATA.scores[`${r.id}::${m.id}`] }))
-        .filter((x) => x.score !== undefined && x.score !== null && x.score !== "");
-      const latest = played[played.length - 1];
-      const previous = played[played.length - 2];
-      return {
-        id: m.id,
-        name: m.name,
-        latestScore: latest ? Number(latest.score) : null,
-        latestDate: latest ? latest.round.date : null,
-        previousScore: previous ? Number(previous.score) : null,
-        previousDate: previous ? previous.round.date : null,
-      };
-    });
-    const sorted = [...rows].sort((a, b) => {
-      if (a.latestScore === null && b.latestScore === null) return 0;
-      if (a.latestScore === null) return 1;
-      if (b.latestScore === null) return -1;
-      return a.latestScore - b.latestScore;
-    });
-
-    root.innerHTML = `
-      <div class="page-header">
-        <h2>팀 분배</h2>
-        <p>각 회원의 직전 라운딩 점수와 최근 라운딩 점수를 비교하고, 최근 성적이 좋은 순서대로 등수를 매깁니다.</p>
-      </div>
-      <div class="panel">
-        <table class="qc-table">
-          <thead><tr><th>등수</th><th>이름</th><th>직전 라운딩 점수</th><th>최근 라운딩 점수</th></tr></thead>
-          <tbody>
-            ${
-              sorted.length
-                ? sorted
-                    .map(
-                      (r, idx) => `<tr>
-                        <td>${r.latestScore !== null ? idx + 1 + "위" : "-"}</td>
-                        <td>${escapeHtml(r.name)}</td>
-                        <td>${r.previousScore !== null ? r.previousScore + "타 (" + formatDateDisplay(r.previousDate) + ")" : "-"}</td>
-                        <td>${r.latestScore !== null ? r.latestScore + "타 (" + formatDateDisplay(r.latestDate) + ")" : "-"}</td>
-                      </tr>`
-                    )
-                    .join("")
-                : `<tr><td colspan="4"><div class="empty-state"><div class="icon">🏌️</div><p>스코어 리스트에 데이터를 먼저 입력하세요.</p></div></td></tr>`
-            }
-          </tbody>
-        </table>
-      </div>
-      <div class="panel">
-        <h3>자동 팀 나누기</h3>
-        <form class="inline-form" id="team-form">
-          <label>팀 수 <input type="number" name="teamCount" min="2" max="${Math.max(2, DATA.members.length)}" value="2" /></label>
-          <button type="submit" class="btn btn-primary">팀 배정</button>
-        </form>
-        <div id="team-result"></div>
-      </div>
-    `;
-    wire(sorted);
-  }
-
-  function wire(sorted) {
-    const teamForm = root.querySelector("#team-form");
-    if (!teamForm) return;
-    teamForm.addEventListener("submit", (e) => {
+    root.querySelector("#team-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const teamCount = Math.max(2, Math.min(DATA.members.length || 2, Number(fd.get("teamCount")) || 2));
       const teams = Array.from({ length: teamCount }, () => []);
-      sorted.forEach((r, idx) => {
+      teamSorted.forEach((r, idx) => {
         const round = Math.floor(idx / teamCount);
         const pos = round % 2 === 0 ? idx % teamCount : teamCount - 1 - (idx % teamCount);
         teams[pos].push(r.name);

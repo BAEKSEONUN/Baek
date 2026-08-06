@@ -241,6 +241,18 @@ body {
   padding-bottom: 6px;
 }
 
+.panel h4 {
+  margin: 20px 0 10px;
+  color: var(--navy);
+  font-size: 14px;
+}
+
+.panel-desc {
+  margin: 4px 0 16px;
+  color: var(--gray-text);
+  font-size: 13px;
+}
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -409,6 +421,25 @@ table.qc-table tr:hover td {
   margin: 0;
   color: var(--orange-dark);
   font-size: 13px;
+}
+
+.time-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.time-input-group input {
+  width: 70px;
+}
+.time-input-group span {
+  font-size: 13px;
+  color: var(--gray-text);
+}
+
+.file-btn {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
 
 .preview-card {
