@@ -440,6 +440,26 @@ table.qc-table tr:hover td {
   color: var(--gray-text);
 }
 
+.date-split-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.date-split-input .date-seg {
+  text-align: center;
+  padding: 9px 6px;
+}
+.date-split-input .date-seg-y {
+  width: 62px;
+}
+.date-split-input .date-seg-m,
+.date-split-input .date-seg-d {
+  width: 42px;
+}
+.date-split-input span {
+  color: var(--gray-text);
+}
+
 .file-btn {
   cursor: pointer;
   display: inline-flex;

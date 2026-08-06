@@ -110,6 +110,54 @@ function wireNumberInputs(root) {
   });
 }
 
+// 연/월/일을 각각 입력하는 날짜 입력창: 연 4자리, 월 2자리 입력이 끝나면 자동으로 다음 칸으로 이동한다.
+// name(과 선택적 id)을 가진 hidden input에 "YYYY-MM-DD" 형식으로 값을 채워, 기존 FormData/getElementById 코드가 그대로 동작하게 한다.
+function renderDateSplitInput(name, { id = "", required = false, value = "" } = {}) {
+  const [y = "", m = "", d = ""] = (value || "").split("-");
+  return `
+    <div class="date-split-input">
+      <input type="hidden" name="${name}" ${id ? `id="${id}"` : ""} ${required ? "required" : ""} value="${escapeHtml(value)}" />
+      <input type="text" inputmode="numeric" class="date-seg date-seg-y" maxlength="4" placeholder="YYYY" aria-label="연" value="${escapeHtml(y)}" />
+      <span>-</span>
+      <input type="text" inputmode="numeric" class="date-seg date-seg-m" maxlength="2" placeholder="MM" aria-label="월" value="${escapeHtml(m)}" />
+      <span>-</span>
+      <input type="text" inputmode="numeric" class="date-seg date-seg-d" maxlength="2" placeholder="DD" aria-label="일" value="${escapeHtml(d)}" />
+    </div>
+  `;
+}
+
+function wireDateSplitInputs(root) {
+  root.querySelectorAll(".date-split-input").forEach((wrap) => {
+    const hidden = wrap.querySelector('input[type="hidden"]');
+    const y = wrap.querySelector(".date-seg-y");
+    const m = wrap.querySelector(".date-seg-m");
+    const d = wrap.querySelector(".date-seg-d");
+
+    function sync() {
+      const yv = y.value;
+      const mv = m.value;
+      const dv = d.value;
+      hidden.value = yv.length === 4 && mv.length > 0 && dv.length > 0 ? `${yv}-${mv.padStart(2, "0")}-${dv.padStart(2, "0")}` : "";
+      hidden.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    y.addEventListener("input", () => {
+      y.value = y.value.replace(/[^0-9]/g, "").slice(0, 4);
+      sync();
+      if (y.value.length === 4) m.focus();
+    });
+    m.addEventListener("input", () => {
+      m.value = m.value.replace(/[^0-9]/g, "").slice(0, 2);
+      sync();
+      if (m.value.length === 2) d.focus();
+    });
+    d.addEventListener("input", () => {
+      d.value = d.value.replace(/[^0-9]/g, "").slice(0, 2);
+      sync();
+    });
+  });
+}
+
 const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
 function parseLocalDate(dateStr) {
@@ -426,7 +474,7 @@ function renderSchedule(root) {
         <h3>일정 추가</h3>
         <form class="form-grid" id="schedule-form">
           <label>날짜
-            <input type="date" name="date" id="schedule-date" required />
+            ${renderDateSplitInput("date", { id: "schedule-date", required: true })}
           </label>
           <label>요일 / 주차
             <input type="text" id="schedule-date-info" readonly placeholder="날짜를 선택하세요" />
@@ -481,6 +529,7 @@ function renderSchedule(root) {
       </div>
     `;
     wire();
+    wireDateSplitInputs(root);
   }
 
   function updatePreview(courseInputEl, previewEl) {
@@ -1113,6 +1162,7 @@ function renderInventory(root) {
     `;
     wire();
     wireNumberInputs(root);
+    wireDateSplitInputs(root);
   }
 
   function renderInventoryItemRows(item, expanded) {
@@ -1139,7 +1189,7 @@ function renderInventory(root) {
       <td colspan="4">
         <div class="inventory-detail">
           <form class="form-grid log-form" data-item="${item.id}">
-            <label>불출일자 <input type="date" name="date" required /></label>
+            <label>불출일자 ${renderDateSplitInput("date", { required: true })}</label>
             <label>개수 <input type="text" inputmode="numeric" class="number-input" name="count" required /></label>
             <label>재고수량 <input type="text" inputmode="numeric" class="number-input" name="remainingQty" required /></label>
             <label>수상자 <input type="text" name="recipient" required /></label>
@@ -1291,7 +1341,7 @@ function renderCashbook(root) {
       </div>
       <div class="panel">
         <form class="form-grid" id="cashbook-form">
-          <label>날짜 <input type="date" name="date" required /></label>
+          <label>날짜 ${renderDateSplitInput("date", { required: true })}</label>
           <label>내용 <input type="text" name="desc" required /></label>
           <label>구분
             <select name="type">
@@ -1331,6 +1381,7 @@ function renderCashbook(root) {
     `;
     wire();
     wireNumberInputs(root);
+    wireDateSplitInputs(root);
   }
 
   function wire() {
