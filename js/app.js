@@ -1181,10 +1181,11 @@ function renderCashbook(root) {
   function draw() {
     const sorted = [...DATA.cashbook].sort((a, b) => a.date.localeCompare(b.date));
     let running = 0;
-    const rowsHtml = sorted.map((entry) => {
+    const rowsChrono = sorted.map((entry) => {
       running += (entry.income || 0) - (entry.expense || 0);
       return { ...entry, balance: running };
     });
+    const rowsHtml = [...rowsChrono].reverse(); // 표시용: 최근 날짜가 맨 위로
     const totalIncome = sorted.reduce((a, e) => a + (e.income || 0), 0);
     const totalExpense = sorted.reduce((a, e) => a + (e.expense || 0), 0);
 
