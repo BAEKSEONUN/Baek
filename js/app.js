@@ -18,6 +18,7 @@ const DEFAULT_DATA = {
   rules: [], // {id, text}
   inventory: [], // {id, name, qty(초기 등록 수량), unit, note, logs: [{id, date, stockIn, stockOut, recipient}]}
   cashbook: [], // {id, date, desc, income, expense}
+  consumables: [], // {id, date, name, qty, note}
   teams: [], // memberId[][] -- 팀 분배 결과(수정 가능)
 };
 
@@ -236,6 +237,7 @@ const MENU_ITEMS = [
   { id: "rules", icon: "📖", label: "골프룰", render: renderRules },
   { id: "inventory", icon: "🎁", label: "상품재고", render: renderInventory },
   { id: "cashbook", icon: "💰", label: "현금장부", render: renderCashbook },
+  { id: "consumables", icon: "🧴", label: "소모품 관리", render: renderConsumables },
 ];
 
 const menuListEl = document.getElementById("menu-list");
@@ -1231,6 +1233,82 @@ function renderCashbook(root) {
     root.querySelectorAll("[data-del]").forEach((btn) =>
       btn.addEventListener("click", () => {
         DATA.cashbook = DATA.cashbook.filter((e) => e.id !== btn.dataset.del);
+        saveData();
+        draw();
+      })
+    );
+  }
+
+  draw();
+}
+
+/* ==================== 소모품 관리 ==================== */
+
+function renderConsumables(root) {
+  function draw() {
+    const sorted = [...DATA.consumables].sort((a, b) => b.date.localeCompare(a.date));
+    root.innerHTML = `
+      <div class="page-header">
+        <h2>소모품 관리</h2>
+        <p>날짜, 이름, 수량, 비고를 입력해 소모품을 등록하고 관리합니다.</p>
+      </div>
+      <div class="panel">
+        <h3>소모품 등록</h3>
+        <form class="form-grid" id="consumables-form">
+          <label>날짜 ${renderDateSplitInput("date", { required: true, value: todayStr() })}</label>
+          <label>이름 <input type="text" name="name" required placeholder="예: A4 용지" /></label>
+          <label>수량 <input type="text" inputmode="numeric" name="qty" class="number-input" required placeholder="0" /></label>
+          <label>비고 <input type="text" name="note" placeholder="예: 사무실 비품함" /></label>
+          <div class="form-actions" style="grid-column: 1 / -1">
+            <button type="submit" class="btn btn-primary">등록</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel">
+        <table class="qc-table">
+          <thead><tr><th>날짜</th><th>이름</th><th>수량</th><th>비고</th><th></th></tr></thead>
+          <tbody>
+            ${
+              sorted.length
+                ? sorted
+                    .map(
+                      (c) => `<tr>
+                        <td>${formatDateDisplay(c.date)}</td>
+                        <td>${escapeHtml(c.name)}</td>
+                        <td>${formatNumber(c.qty)}</td>
+                        <td>${escapeHtml(c.note || "-")}</td>
+                        <td><button class="btn-icon" data-del="${c.id}" title="삭제">🗑️</button></td>
+                      </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="5"><div class="empty-state"><div class="icon">🧴</div><p>등록된 소모품이 없습니다.</p></div></td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+    wire();
+    wireNumberInputs(root);
+    wireDateSplitInputs(root);
+  }
+
+  function wire() {
+    root.querySelector("#consumables-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const date = fd.get("date");
+      const name = fd.get("name").trim();
+      const qty = parseFormattedNumber(fd.get("qty"));
+      const note = fd.get("note").trim();
+      if (!date || !name) return;
+      DATA.consumables.push({ id: uid(), date, name, qty, note });
+      saveData();
+      draw();
+    });
+
+    root.querySelectorAll("[data-del]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        DATA.consumables = DATA.consumables.filter((c) => c.id !== btn.dataset.del);
         saveData();
         draw();
       })
