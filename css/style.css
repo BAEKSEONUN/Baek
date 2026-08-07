@@ -460,12 +460,6 @@ table.qc-table tr:hover td {
   color: var(--gray-text);
 }
 
-.file-btn {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-}
-
 .preview-card {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

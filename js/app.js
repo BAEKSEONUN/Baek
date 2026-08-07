@@ -200,182 +200,30 @@ function formatTravelTime(totalMinutes) {
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
-/* ==================== 스코어 엑셀 일괄등록 ====================
- * "Score List" 형식: B열에 회원 이름, 회원 이름 행 바로 위 2개 행이
- * 각각 골프장(장소)/날짜(일자) 헤더. 골프장 열 오른쪽에 딸린 RANKING,
- * FINAL SCORE, FINAL RANKING 열은 앱이 자체적으로 등수를 계산하므로 건너뛴다.
- */
+/* ==================== 스코어 엑셀 다운로드 ==================== */
 
-function normalizeDateValue(val) {
-  if (val instanceof Date) {
-    return `${val.getUTCFullYear()}-${String(val.getUTCMonth() + 1).padStart(2, "0")}-${String(val.getUTCDate()).padStart(2, "0")}`;
-  }
-  const s = String(val ?? "").trim();
-  const m = s.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})$/);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  return s;
-}
-
-const SCORE_SHEET_SKIP_LABELS = new Set(["RANKING", "FINAL SCORE", "FINAL RANKING"]);
-
-function parseScoreSheet(workbook) {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet || !sheet["!ref"]) {
-    return { rounds: [], members: [], entries: [], error: "시트를 찾을 수 없습니다." };
-  }
-  const range = XLSX.utils.decode_range(sheet["!ref"]);
-
-  function cellAt(r, c) {
-    const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-    if (!cell || cell.v === undefined || cell.v === null) return "";
-    return cell.v;
-  }
-
-  let placeRowIdx = -1;
-  let dateRowIdx = -1;
-  let nameColIdx = -1;
-  for (let r = range.s.r; r <= range.e.r; r++) {
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const v = String(cellAt(r, c)).trim();
-      if (v === "장소") {
-        placeRowIdx = r;
-        nameColIdx = c;
-      }
-      if (v === "일자") {
-        dateRowIdx = r;
-      }
-    }
-  }
-  if (placeRowIdx === -1 || dateRowIdx === -1 || nameColIdx === -1) {
-    return {
-      rounds: [],
-      members: [],
-      entries: [],
-      error: "'장소'/'일자' 헤더를 찾지 못했습니다. 제공된 스코어 리스트 양식과 구조가 다른 파일입니다.",
-    };
-  }
-
-  const rounds = [];
-  for (let c = nameColIdx + 1; c <= range.e.c; c++) {
-    const courseName = String(cellAt(placeRowIdx, c)).trim();
-    if (!courseName || SCORE_SHEET_SKIP_LABELS.has(courseName.toUpperCase())) continue;
-    const date = normalizeDateValue(cellAt(dateRowIdx, c));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    rounds.push({ col: c, courseName, date });
-  }
-
-  const members = [];
-  const entries = [];
-  let blankStreak = 0;
-  for (let r = dateRowIdx + 1; r <= range.e.r; r++) {
-    const name = String(cellAt(r, nameColIdx)).trim();
-    if (!name) {
-      blankStreak++;
-      if (blankStreak >= 3) break;
-      continue;
-    }
-    blankStreak = 0;
-    members.push(name);
-    rounds.forEach(({ col, courseName, date }) => {
-      const raw = cellAt(r, col);
-      if (raw === "") return;
-      const score = Number(raw);
-      if (Number.isNaN(score)) return; // "중도포기" 등 숫자가 아닌 값은 건너뜀
-      entries.push({ name, courseName, date, score });
-    });
-  }
-
-  return { rounds, members, entries, error: null };
-}
-
-function importScoreSheetEntries(parsed) {
-  const newMembers = [];
-  parsed.members.forEach((name) => {
-    if (!DATA.members.some((m) => m.name.trim() === name)) {
-      DATA.members.push({ id: uid(), name, type: inferMemberType(name) });
-      newMembers.push(name);
-    }
-  });
-
-  const newCourses = new Set();
-  let success = 0;
-  parsed.entries.forEach(({ name, courseName, date, score }) => {
-    const member = DATA.members.find((m) => m.name.trim() === name);
-    let course = findCourseByName(courseName);
-    if (!course) {
-      course = { id: uid(), name: courseName, greenFee: 0, caddieFee: 0, mealIncluded: false, travelMinutes: 0 };
-      DATA.courses.push(course);
-      newCourses.add(courseName);
-    }
-    let round = DATA.rounds.find((r) => r.courseId === course.id && r.date === date);
-    if (!round) {
-      round = { id: uid(), courseId: course.id, date };
-      DATA.rounds.push(round);
-    }
-    DATA.scores[`${round.id}::${member.id}`] = score;
-    success++;
-  });
-
-  saveData();
-  return {
-    success,
-    memberCount: parsed.members.length,
-    roundCount: parsed.rounds.length,
-    newMembers,
-    newCourses: [...newCourses],
-  };
-}
-
-function downloadExcelTemplate() {
+function downloadScoreExcel(rounds, members) {
   if (typeof XLSX === "undefined") {
     alert("엑셀 기능을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.");
     return;
   }
-  const wsData = [
-    [],
-    ["", "장소", "OO CC", "△△ CC"],
-    ["", "일자", "2026-08-15", "2026-08-22"],
-    ["", "홍길동", 88, 91],
-    ["", "김철수", 95, 89],
+  if (!rounds.length || !members.length) {
+    alert("다운로드할 스코어 데이터가 없습니다.");
+    return;
+  }
+  const header1 = [
+    "이름",
+    ...rounds.map((r) => {
+      const course = DATA.courses.find((c) => c.id === r.courseId);
+      return course ? course.name : "(삭제된 골프장)";
+    }),
   ];
-  for (let i = 0; i < 15; i++) wsData.push(["", ""]);
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const header2 = ["", ...rounds.map((r) => formatDateDisplay(r.date))];
+  const body = members.map((m) => [m.name, ...rounds.map((r) => DATA.scores[`${r.id}::${m.id}`] ?? "")]);
+  const ws = XLSX.utils.aoa_to_sheet([header1, header2, ...body]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Score List");
-  XLSX.writeFile(wb, "스코어_업로드_양식.xlsx");
-}
-
-function handleExcelUpload(file, onDone) {
-  if (typeof XLSX === "undefined") {
-    alert("엑셀 기능을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.");
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const data = new Uint8Array(e.target.result);
-      const wb = XLSX.read(data, { type: "array", cellDates: true });
-      const parsed = parseScoreSheet(wb);
-      if (parsed.error) {
-        alert(parsed.error);
-        return;
-      }
-      if (!parsed.members.length) {
-        alert("등록할 회원 데이터를 찾지 못했습니다. B열에 회원 이름이 있는지 확인하세요.");
-        return;
-      }
-      const result = importScoreSheetEntries(parsed);
-      let msg = `일괄등록 완료: 회원 ${result.memberCount}명, 라운드 ${result.roundCount}개, 스코어 ${result.success}건이 등록되었습니다.`;
-      if (result.newCourses.length) {
-        msg += `\n\n새로 등록된 골프장(그린피 등 상세 정보를 '골프장 정보'에서 입력하세요): ${result.newCourses.join(", ")}`;
-      }
-      alert(msg);
-      onDone();
-    } catch (err) {
-      alert("파일을 읽는 중 오류가 발생했습니다: " + err.message);
-    }
-  };
-  reader.readAsArrayBuffer(file);
+  XLSX.writeFile(wb, "스코어_리스트.xlsx");
 }
 
 /* ==================== 메뉴 구성 ==================== */
@@ -825,7 +673,7 @@ function renderScores(root) {
     root.innerHTML = `
       <div class="page-header">
         <h2>스코어 리스트</h2>
-        <p>라운딩별 타수를 입력하세요. 엑셀 파일로 여러 명의 타수를 한 번에 등록할 수도 있습니다. 이름 옆 배지를 클릭하면 멤버/게스트를 전환할 수 있습니다.</p>
+        <p>라운딩별 타수를 입력하세요. 이름 옆 배지를 클릭하면 멤버/게스트를 전환할 수 있습니다.</p>
       </div>
       <div class="panel score-toolbar">
         <form id="member-form" class="inline-form">
@@ -840,11 +688,7 @@ function renderScores(root) {
           <button type="submit" class="btn btn-secondary">라운드 추가</button>
         </form>
         <div class="inline-form">
-          <button type="button" class="btn btn-ghost" id="excel-template-btn">엑셀 양식 다운로드</button>
-          <label class="btn btn-secondary file-btn">
-            엑셀 일괄등록
-            <input type="file" id="excel-upload" accept=".xlsx,.xls,.csv" hidden />
-          </label>
+          <button type="button" class="btn btn-ghost" id="excel-download-btn">스코어 엑셀 다운로드</button>
         </div>
       </div>
       <div class="panel score-panel">
@@ -921,10 +765,10 @@ function renderScores(root) {
         <div id="team-result">${renderTeamCardsHtml(DATA.teams)}</div>
       </div>
     `;
-    wire(memberRows);
+    wire(memberRows, rounds);
   }
 
-  function wire(memberRows) {
+  function wire(memberRows, rounds) {
     root.querySelector("#member-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -950,15 +794,8 @@ function renderScores(root) {
       draw();
     });
 
-    root.querySelector("#excel-template-btn").addEventListener("click", () => {
-      downloadExcelTemplate();
-    });
-
-    root.querySelector("#excel-upload").addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      handleExcelUpload(file, () => draw());
-      e.target.value = "";
+    root.querySelector("#excel-download-btn").addEventListener("click", () => {
+      downloadScoreExcel(rounds, DATA.members);
     });
 
     root.querySelectorAll("[data-delround]").forEach((btn) =>
