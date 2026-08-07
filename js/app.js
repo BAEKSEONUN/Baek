@@ -19,6 +19,8 @@ const DEFAULT_DATA = {
   inventory: [], // {id, name, qty(초기 등록 수량), unit, note, logs: [{id, date, stockIn, stockOut, recipient}]}
   cashbook: [], // {id, date, desc, income, expense}
   teams: [], // memberId[][] -- 팀 분배 결과(수정 가능)
+  consumableTypes: [], // {id, name, unit, category, note} -- 소모품 종류/정보
+  consumableLogs: [], // {id, date, itemId, type: "in"|"out"|"discard", qty, note}
 };
 
 // 최초 도입 시 기존 데이터의 회원을 멤버/게스트로 분류하기 위한 기본 게스트 명단
@@ -236,6 +238,8 @@ const MENU_ITEMS = [
   { id: "rules", icon: "📖", label: "골프룰", render: renderRules },
   { id: "inventory", icon: "🎁", label: "상품재고", render: renderInventory },
   { id: "cashbook", icon: "💰", label: "현금장부", render: renderCashbook },
+  { id: "consumable-types", icon: "🧰", label: "소모품 종류", render: renderConsumableTypes },
+  { id: "consumables", icon: "📦", label: "소모품 관리", render: renderConsumables },
 ];
 
 const menuListEl = document.getElementById("menu-list");
@@ -1231,6 +1235,245 @@ function renderCashbook(root) {
     root.querySelectorAll("[data-del]").forEach((btn) =>
       btn.addEventListener("click", () => {
         DATA.cashbook = DATA.cashbook.filter((e) => e.id !== btn.dataset.del);
+        saveData();
+        draw();
+      })
+    );
+  }
+
+  draw();
+}
+
+/* ==================== 소모품 종류 ==================== */
+
+function renderConsumableTypes(root) {
+  let editingId = null;
+
+  function draw() {
+    const editing = editingId ? DATA.consumableTypes.find((t) => t.id === editingId) : null;
+    root.innerHTML = `
+      <div class="page-header">
+        <h2>소모품 종류</h2>
+        <p>소모품 관리에서 사용할 소모품의 종류와 기본 정보(단위, 분류, 비고)를 등록합니다.</p>
+      </div>
+      <div class="panel">
+        <h3>${editing ? "소모품 종류 수정" : "소모품 종류 추가"}</h3>
+        <form class="form-grid" id="consumable-type-form">
+          <label>이름
+            <input type="text" name="name" required value="${escapeHtml(editing?.name ?? "")}" placeholder="예: A4용지" />
+          </label>
+          <label>단위
+            <input type="text" name="unit" value="${escapeHtml(editing?.unit ?? "")}" placeholder="예: 박스, 개" />
+          </label>
+          <label>분류
+            <input type="text" name="category" value="${escapeHtml(editing?.category ?? "")}" placeholder="예: 사무용품" />
+          </label>
+          <label>비고
+            <input type="text" name="note" value="${escapeHtml(editing?.note ?? "")}" />
+          </label>
+          <div class="form-actions" style="grid-column: 1 / -1">
+            <button type="submit" class="btn btn-primary">${editing ? "수정 완료" : "추가"}</button>
+            ${editing ? `<button type="button" class="btn btn-ghost" id="cancel-edit">취소</button>` : ""}
+          </div>
+        </form>
+      </div>
+      <div class="panel">
+        <table class="qc-table">
+          <thead><tr><th>이름</th><th>단위</th><th>분류</th><th>비고</th><th></th></tr></thead>
+          <tbody>
+            ${
+              DATA.consumableTypes.length
+                ? DATA.consumableTypes
+                    .map(
+                      (t) => `<tr>
+                        <td>${escapeHtml(t.name)}</td>
+                        <td>${escapeHtml(t.unit || "-")}</td>
+                        <td>${escapeHtml(t.category || "-")}</td>
+                        <td>${escapeHtml(t.note || "-")}</td>
+                        <td class="row-actions">
+                          <button class="btn-icon" data-edit="${t.id}" title="수정">✏️</button>
+                          <button class="btn-icon" data-del="${t.id}" title="삭제">🗑️</button>
+                        </td>
+                      </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="5"><div class="empty-state"><div class="icon">🧰</div><p>등록된 소모품 종류가 없습니다.</p></div></td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+    wire();
+  }
+
+  function wire() {
+    root.querySelector("#consumable-type-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        name: fd.get("name").trim(),
+        unit: fd.get("unit").trim(),
+        category: fd.get("category").trim(),
+        note: fd.get("note").trim(),
+      };
+      if (!payload.name) return;
+      if (editingId) {
+        const t = DATA.consumableTypes.find((x) => x.id === editingId);
+        Object.assign(t, payload);
+        editingId = null;
+      } else {
+        DATA.consumableTypes.push({ id: uid(), ...payload });
+      }
+      saveData();
+      draw();
+    });
+
+    const cancelBtn = root.querySelector("#cancel-edit");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => { editingId = null; draw(); });
+
+    root.querySelectorAll("[data-edit]").forEach((btn) =>
+      btn.addEventListener("click", () => { editingId = btn.dataset.edit; draw(); })
+    );
+
+    root.querySelectorAll("[data-del]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (!confirm("이 소모품 종류를 삭제할까요? 관련 등록 내역의 이름 정보는 남아있지만 종류 연결은 사라집니다.")) return;
+        DATA.consumableTypes = DATA.consumableTypes.filter((t) => t.id !== btn.dataset.del);
+        saveData();
+        draw();
+      })
+    );
+  }
+
+  draw();
+}
+
+/* ==================== 소모품 관리(등록 / 불량 폐기) ==================== */
+
+const CONSUMABLE_LOG_TYPE_LABEL = { in: "입고", out: "사용(출고)", discard: "불량 폐기" };
+const CONSUMABLE_LOG_TYPE_CLASS = { in: "status-pass", out: "status-pending", discard: "status-fail" };
+
+// 종류별 입고/사용/불량폐기 로그를 누적해 현재 재고수량을 계산한다.
+function computeConsumableStock(itemId) {
+  return DATA.consumableLogs
+    .filter((l) => l.itemId === itemId)
+    .reduce((sum, l) => sum + (l.type === "in" ? l.qty : -l.qty), 0);
+}
+
+function renderConsumables(root) {
+  function draw() {
+    const typeOptions = DATA.consumableTypes
+      .map((t) => `<option value="${t.id}">${escapeHtml(t.name)}${t.unit ? " (" + escapeHtml(t.unit) + ")" : ""}</option>`)
+      .join("");
+
+    const sortedLogs = [...DATA.consumableLogs].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+
+    root.innerHTML = `
+      <div class="page-header">
+        <h2>소모품 관리</h2>
+        <p>소모품 입고/사용/불량 폐기 내역을 날짜, 이름, 수량, 비고와 함께 등록합니다. 이름은 '소모품 종류'에 먼저 등록해야 선택할 수 있습니다.</p>
+      </div>
+      ${
+        !DATA.consumableTypes.length
+          ? `<div class="panel"><div class="empty-state"><div class="icon">🧰</div><p>등록된 소모품 종류가 없습니다. 먼저 '소모품 종류' 메뉴에서 등록하세요.</p></div></div>`
+          : `<div class="panel">
+              <h3>소모품 등록</h3>
+              <form class="form-grid" id="consumable-log-form">
+                <label>날짜 ${renderDateSplitInput("date", { id: "consumable-date", required: true, value: todayStr() })}</label>
+                <label>이름
+                  <select name="itemId" required>
+                    <option value="">선택하세요</option>
+                    ${typeOptions}
+                  </select>
+                </label>
+                <label>수량 <input type="text" inputmode="numeric" name="qty" class="number-input" required placeholder="0" /></label>
+                <label>구분
+                  <select name="type">
+                    <option value="in">입고</option>
+                    <option value="out">사용(출고)</option>
+                    <option value="discard">불량 폐기</option>
+                  </select>
+                </label>
+                <label>비고 <input type="text" name="note" /></label>
+                <div class="form-actions" style="grid-column: 1 / -1">
+                  <button type="submit" class="btn btn-primary">등록</button>
+                </div>
+              </form>
+            </div>`
+      }
+      <div class="panel">
+        <h3>현재 재고</h3>
+        <table class="qc-table">
+          <thead><tr><th>이름</th><th>단위</th><th>분류</th><th>현재 재고</th></tr></thead>
+          <tbody>
+            ${
+              DATA.consumableTypes.length
+                ? DATA.consumableTypes
+                    .map(
+                      (t) => `<tr>
+                        <td>${escapeHtml(t.name)}</td>
+                        <td>${escapeHtml(t.unit || "-")}</td>
+                        <td>${escapeHtml(t.category || "-")}</td>
+                        <td>${formatNumber(computeConsumableStock(t.id))}</td>
+                      </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="4"><div class="empty-state"><div class="icon">🧰</div><p>등록된 소모품 종류가 없습니다.</p></div></td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>등록 내역</h3>
+        <table class="qc-table">
+          <thead><tr><th>날짜</th><th>이름</th><th>구분</th><th>수량</th><th>비고</th><th></th></tr></thead>
+          <tbody>
+            ${
+              sortedLogs.length
+                ? sortedLogs
+                    .map((l) => {
+                      const item = DATA.consumableTypes.find((t) => t.id === l.itemId);
+                      return `<tr>
+                        <td>${formatDateDisplay(l.date)}</td>
+                        <td>${item ? escapeHtml(item.name) : "(삭제된 종류)"}</td>
+                        <td><span class="status-pill ${CONSUMABLE_LOG_TYPE_CLASS[l.type]}">${CONSUMABLE_LOG_TYPE_LABEL[l.type]}</span></td>
+                        <td>${formatNumber(l.qty)}${item?.unit ? " " + escapeHtml(item.unit) : ""}</td>
+                        <td>${escapeHtml(l.note || "-")}</td>
+                        <td><button class="btn-icon" data-del="${l.id}" title="삭제">🗑️</button></td>
+                      </tr>`;
+                    })
+                    .join("")
+                : `<tr><td colspan="6"><div class="empty-state"><div class="icon">📦</div><p>등록된 내역이 없습니다.</p></div></td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+    wire();
+    wireNumberInputs(root);
+    wireDateSplitInputs(root);
+  }
+
+  function wire() {
+    const form = root.querySelector("#consumable-log-form");
+    if (form) {
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const date = fd.get("date");
+        const itemId = fd.get("itemId");
+        const qty = parseFormattedNumber(fd.get("qty"));
+        const type = fd.get("type");
+        if (!date || !itemId || !qty) return;
+        DATA.consumableLogs.push({ id: uid(), date, itemId, type, qty, note: fd.get("note").trim() });
+        saveData();
+        draw();
+      });
+    }
+
+    root.querySelectorAll("[data-del]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        DATA.consumableLogs = DATA.consumableLogs.filter((l) => l.id !== btn.dataset.del);
         saveData();
         draw();
       })
