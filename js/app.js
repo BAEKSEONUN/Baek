@@ -613,6 +613,21 @@ function renderScores(root) {
   function draw() {
     const chronoRounds = [...DATA.rounds].sort((a, b) => a.date.localeCompare(b.date));
     const rounds = [...chronoRounds].reverse(); // 표시용: 가장 최근 라운드가 왼쪽에 오도록
+
+    // 핸디: (최근 5경기 평균타수 - 72) * 0.8
+    const handicapMap = {};
+    DATA.members.forEach((m) => {
+      const recentScores = chronoRounds
+        .map((r) => DATA.scores[`${r.id}::${m.id}`])
+        .filter((v) => v !== undefined && v !== null && v !== "")
+        .map(Number)
+        .slice(-5);
+      if (recentScores.length) {
+        const avg = recentScores.reduce((a, b) => a + b, 0) / recentScores.length;
+        handicapMap[m.id] = (avg - 72) * 0.8;
+      }
+    });
+
     const scheduleOptions = [...DATA.schedules]
       .filter((s) => s.courseId)
       .sort((a, b) => a.date.localeCompare(b.date))
@@ -697,6 +712,7 @@ function renderScores(root) {
             <thead>
               <tr>
                 <th rowspan="2" class="sticky-col">이름</th>
+                <th rowspan="2" title="(최근 5경기 평균타수 - 72) × 0.8">핸디</th>
                 ${rounds
                   .map((r) => {
                     const course = DATA.courses.find((c) => c.id === r.courseId);
@@ -714,15 +730,17 @@ function renderScores(root) {
                   ? DATA.members
                       .map((m) => {
                         const type = m.type || "member";
+                        const handicap = handicapMap[m.id];
                         return `<tr>
                         <td class="sticky-col member-cell">
-                          <span class="member-name">${escapeHtml(m.name)}</span>
                           <button class="type-badge type-${type}" data-toggletype="${m.id}" title="클릭하여 멤버/게스트 전환">${MEMBER_TYPE_LABEL[type]}</button>
+                          <span class="member-name">${escapeHtml(m.name)}</span>
                           <span class="member-actions">
                             <button class="btn-icon" data-renamemember="${m.id}" title="이름 수정">✏️</button>
                             <button class="btn-icon" data-delmember="${m.id}" title="회원 삭제">✕</button>
                           </span>
                         </td>
+                        <td>${handicap !== undefined ? handicap.toFixed(1) : "-"}</td>
                         ${rounds
                           .map((r) => {
                             const key = `${r.id}::${m.id}`;
@@ -733,7 +751,7 @@ function renderScores(root) {
                       </tr>`;
                       })
                       .join("")
-                  : `<tr><td colspan="${1 + rounds.length}"><div class="empty-state"><div class="icon">👥</div><p>등록된 회원이 없습니다.</p></div></td></tr>`
+                  : `<tr><td colspan="${2 + rounds.length}"><div class="empty-state"><div class="icon">👥</div><p>등록된 회원이 없습니다.</p></div></td></tr>`
               }
             </tbody>
           </table>
